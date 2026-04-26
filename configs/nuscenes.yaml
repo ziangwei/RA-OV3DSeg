@@ -1,0 +1,14 @@
+project_name: RA-OV3DSeg
+
+nuscenes:
+  dataroot: /path/to/nuscenes
+  version: v1.0-mini
+  sample_idx: null
+  start_idx: 0
+  max_samples: 1
+
+outputs:
+  base_dir: outputs
+  check_dir: outputs/checks
+  projection_dir: outputs/projections
+  visualization_dir: outputs/visualizations

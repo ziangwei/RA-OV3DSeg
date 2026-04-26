@@ -20,6 +20,7 @@ RA-OV3DSeg/
   .gitignore
 
   configs/
+    nuscenes.yaml
     nuscenes_mini.yaml
 
   scripts/
@@ -29,6 +30,7 @@ RA-OV3DSeg/
 
   ra_ov3dseg/
     datasets/
+      nuscenes_dataset.py
       nuscenes_mini_dataset.py
 
     geometry/
@@ -109,6 +111,17 @@ python scripts/check_nuscenes_sample.py \
   --sample_idx 0
 ```
 
+也支持小批量检查：
+
+```bash
+python scripts/check_nuscenes_sample.py \
+  --dataroot /path/to/nuscenes \
+  --version v1.0-mini \
+  --start_idx 0 \
+  --max_samples 8 \
+  --output_dir outputs/checks
+```
+
 ### 2. 计算 LiDAR 到 6 个相机的投影
 
 ```bash
@@ -116,6 +129,17 @@ python scripts/project_lidar_to_cameras.py \
   --dataroot /path/to/nuscenes \
   --version v1.0-mini \
   --sample_idx 0 \
+  --output_dir outputs/projections
+```
+
+也支持小批量投影：
+
+```bash
+python scripts/project_lidar_to_cameras.py \
+  --dataroot /path/to/nuscenes \
+  --version v1.0-mini \
+  --start_idx 0 \
+  --max_samples 8 \
   --output_dir outputs/projections
 ```
 
@@ -132,6 +156,18 @@ python scripts/visualize_projection.py \
   --version v1.0-mini \
   --sample_idx 0 \
   --projection_npz outputs/projections/sample_0000_projection.npz \
+  --output_dir outputs/visualizations
+```
+
+也支持直接按投影目录批量可视化：
+
+```bash
+python scripts/visualize_projection.py \
+  --dataroot /path/to/nuscenes \
+  --version v1.0-mini \
+  --start_idx 0 \
+  --max_samples 8 \
+  --projection_dir outputs/projections \
   --output_dir outputs/visualizations
 ```
 

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ra_ov3dseg.datasets.nuscenes_mini_dataset import CAMERA_CHANNELS, NuScenesMiniDataset
+from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset
 from ra_ov3dseg.geometry.transforms import inverse_transform_points, transform_points
 
 
@@ -16,7 +16,7 @@ def _load_image_size(image_path: Path) -> tuple[int, int]:
 
 
 def project_lidar_points_to_cameras(
-    dataset: NuScenesMiniDataset,
+    dataset: NuScenesDataset,
     sample: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """将 LiDAR 点云投影到 6 个相机平面，并返回可保存的数组与摘要。
