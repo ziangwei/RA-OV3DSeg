@@ -1,0 +1,15 @@
+data/
+outputs/
+*.npz
+*.pth
+*.pt
+*.ckpt
+__pycache__/
+.DS_Store
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
