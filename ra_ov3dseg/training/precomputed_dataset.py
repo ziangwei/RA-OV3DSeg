@@ -25,6 +25,32 @@ def default_reliability_path(reliability_dir: str | Path, sample_idx: int) -> Pa
     return Path(reliability_dir).expanduser().resolve() / f"sample_{sample_idx:04d}_reliability.npz"
 
 
+def find_missing_precomputed_files(
+    sample_indices: list[int],
+    point_feature_dir: str | Path,
+    reliability_dir: str | Path,
+) -> list[dict[str, str | int]]:
+    point_feature_dir = Path(point_feature_dir).expanduser().resolve()
+    reliability_dir = Path(reliability_dir).expanduser().resolve()
+    missing: list[dict[str, str | int]] = []
+    for sample_idx in sample_indices:
+        point_feature_path = default_point_feature_path(point_feature_dir, sample_idx)
+        reliability_path = default_reliability_path(reliability_dir, sample_idx)
+        missing_files = []
+        if not point_feature_path.exists():
+            missing_files.append(str(point_feature_path))
+        if not reliability_path.exists():
+            missing_files.append(str(reliability_path))
+        if missing_files:
+            missing.append(
+                {
+                    "sample_idx": int(sample_idx),
+                    "missing_files": "\n".join(missing_files),
+                }
+            )
+    return missing
+
+
 def subsample_indices(num_points: int, max_points: int | None, seed: int) -> np.ndarray:
     if max_points is None or max_points <= 0 or num_points <= max_points:
         return np.arange(num_points, dtype=np.int64)

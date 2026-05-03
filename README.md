@@ -317,7 +317,7 @@ MVP-v4 开始做小规模真实训练，主入口是通用 3D segmentor trainer�
 - 蒸馏：用已经缓存的 CLIP/SigLIP point features 做 reliability-weighted cosine distillation。
 - 输出：`outputs/training_v4/train_summary.json` 和 `point_mlp_latest.pt`。
 
-训练前必须先对同一批 `sample_idx` 跑完 v0-v2，确保 `outputs/point_features/` 和 `outputs/reliability/` 中存在对应 `.npz`。后续正式模型会在同一个入口下接 `sparse_unet_spconv` / SPVCNN 类 backbone。
+训练前必须先对同一批 `sample_idx` 跑完 v0-v2，确保 `outputs/point_features/` 和 `outputs/reliability/` 中存在对应 `.npz`。后续正式模型会在同一个入口下接 `sparse_unet_spconv` / SPVCNN 类 backbone。如果只是 smoke test，可以加 `--skip_missing_precomputed` 跳过缺少预计算输出的 sample。
 
 单卡 H100 / A100 / V100：
 
@@ -334,6 +334,7 @@ python scripts/train_3d_segmentor.py \
   --epochs 2 \
   --batch_size 1 \
   --max_points 20000 \
+  --skip_missing_precomputed \
   --amp \
   --output_dir outputs/training_v4
 ```
@@ -353,6 +354,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train_3d_segmentor.py \
   --epochs 2 \
   --batch_size 1 \
   --max_points 20000 \
+  --skip_missing_precomputed \
   --amp \
   --output_dir outputs/training_v4
 ```

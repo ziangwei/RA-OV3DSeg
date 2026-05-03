@@ -24,6 +24,7 @@ from ra_ov3dseg.training.precomputed_dataset import (  # noqa: E402
     IGNORE_INDEX,
     PrecomputedPointFeatureDataset,
     collate_point_feature_samples,
+    find_missing_precomputed_files,
     label_hist,
 )
 from ra_ov3dseg.utils.io import ensure_dir, save_json  # noqa: E402
@@ -42,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--all_samples", action="store_true", help="Use all samples from start_idx to dataset end.")
     parser.add_argument("--point_feature_dir", default="outputs/point_features", type=str)
     parser.add_argument("--reliability_dir", default="outputs/reliability", type=str)
+    parser.add_argument(
+        "--skip_missing_precomputed",
+        action="store_true",
+        help="Skip samples missing point_features/reliability npz instead of failing before training.",
+    )
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
     parser.add_argument("--split_config", default="configs/base_novel_split.yaml", type=str)
     parser.add_argument("--output_dir", default="outputs/training_v4", type=str)
@@ -232,6 +238,36 @@ def main() -> int:
         start_idx=args.start_idx,
         max_samples=max_samples,
     )
+    missing_precomputed = find_missing_precomputed_files(
+        sample_indices=sample_indices,
+        point_feature_dir=args.point_feature_dir,
+        reliability_dir=args.reliability_dir,
+    )
+    if missing_precomputed:
+        missing_sample_indices = {int(item["sample_idx"]) for item in missing_precomputed}
+        if args.skip_missing_precomputed:
+            original_count = len(sample_indices)
+            sample_indices = [idx for idx in sample_indices if idx not in missing_sample_indices]
+            if not sample_indices:
+                raise FileNotFoundError(
+                    "All requested samples are missing precomputed point features or reliability outputs."
+                )
+            if main_process:
+                logger.warning(
+                    "skipping %d/%d samples missing precomputed outputs; first_missing_sample=%s",
+                    len(missing_precomputed),
+                    original_count,
+                    missing_precomputed[0]["sample_idx"],
+                )
+        else:
+            first_missing = missing_precomputed[0]
+            raise FileNotFoundError(
+                "Training requires precomputed outputs from MVP-v1/v2 for every requested sample. "
+                f"Missing {len(missing_precomputed)} sample(s); first missing sample_idx="
+                f"{first_missing['sample_idx']}:\n{first_missing['missing_files']}\n"
+                "Either precompute that sample range first, lower --max_samples, or pass "
+                "--skip_missing_precomputed for a smoke test."
+            )
     class_split = build_class_split(args.class_names_path, args.split_config)
     max_points = None if args.max_points <= 0 else args.max_points
     train_dataset = PrecomputedPointFeatureDataset(
