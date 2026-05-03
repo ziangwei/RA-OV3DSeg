@@ -60,6 +60,25 @@ class TextEncoder:
         self.model.eval()
         self.model.to(self.device)
 
+    def _apply_text_projection(self, features):
+        if hasattr(self.model, "text_projection"):
+            return self.model.text_projection(features)
+        return features
+
+    def _extract_text_embeddings(self, inputs) -> np.ndarray:
+        text_outputs = self.model.get_text_features(**inputs)
+        if self.torch.is_tensor(text_outputs):
+            return text_outputs.detach().cpu().numpy().astype(np.float32)
+
+        if hasattr(text_outputs, "text_embeds") and self.torch.is_tensor(text_outputs.text_embeds):
+            return text_outputs.text_embeds.detach().cpu().numpy().astype(np.float32)
+
+        if hasattr(text_outputs, "pooler_output") and text_outputs.pooler_output is not None:
+            text_embeddings = self._apply_text_projection(text_outputs.pooler_output)
+            return text_embeddings.detach().cpu().numpy().astype(np.float32)
+
+        raise ValueError(f"Cannot extract text embeddings for model `{self.model_name}`.")
+
     def build_prompts(self, class_names: list[str], prompt_template: str | None = None) -> list[str]:
         if prompt_template is None:
             return [prettify_label_name(class_name) for class_name in class_names]
@@ -81,9 +100,8 @@ class TextEncoder:
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
 
         with self.torch.no_grad():
-            text_embeddings = self.model.get_text_features(**inputs)
+            text_embeddings_np = self._extract_text_embeddings(inputs)
 
-        text_embeddings_np = text_embeddings.detach().cpu().numpy().astype(np.float32)
         if normalize:
             text_norm = np.linalg.norm(text_embeddings_np, axis=-1, keepdims=True)
             text_embeddings_np = text_embeddings_np / np.clip(text_norm, 1e-6, None)
