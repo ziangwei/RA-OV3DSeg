@@ -25,8 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2"],
-        help="Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability.",
+        choices=["v0", "v1", "v2", "v3"],
+        help="Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, v3 training dry-run.",
     )
     parser.add_argument(
         "--min_projection_ratio",
@@ -375,6 +375,42 @@ def verify_reliability(outputs_dir: Path, sample_idx: int, checks: list[dict[str
     )
 
 
+def verify_training_dryrun(outputs_dir: Path, sample_idx: int, checks: list[dict[str, Any]]) -> None:
+    prefix = f"sample_{sample_idx:04d}"
+    summary_path = outputs_dir / "training_dryrun" / f"{prefix}_training_dryrun_summary.json"
+
+    if not check_file(summary_path, checks, "training_dryrun_summary_json"):
+        return
+
+    summary = load_json(summary_path)
+    loss = summary.get("loss", {})
+    total_loss = float(loss.get("total_loss", float("nan")))
+    ce_loss = float(loss.get("ce_loss", float("nan")))
+    distill_loss = float(loss.get("distill_loss", float("nan")))
+    grad_norm = float(summary.get("grad_norm", float("nan")))
+    base_points = int(summary.get("base_supervised_points", 0))
+    distill_points = int(summary.get("distill_points", 0))
+
+    add_check(
+        checks,
+        "training_dryrun_losses",
+        np.isfinite(total_loss) and np.isfinite(ce_loss) and np.isfinite(distill_loss) and total_loss >= 0.0,
+        f"ce={ce_loss:.6f}, distill={distill_loss:.6f}, total={total_loss:.6f}",
+    )
+    add_check(
+        checks,
+        "training_dryrun_grad",
+        np.isfinite(grad_norm) and grad_norm > 0.0,
+        f"grad_norm={grad_norm:.6f}",
+    )
+    add_check(
+        checks,
+        "training_dryrun_supervision",
+        base_points > 0 and distill_points > 0,
+        f"base_supervised_points={base_points}, distill_points={distill_points}",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -384,12 +420,14 @@ def main() -> int:
 
     verify_projection(outputs_dir, args.sample_idx, args, checks)
     verify_overlays(outputs_dir, args.sample_idx, checks)
-    if args.stage in {"v1", "v2"}:
+    if args.stage in {"v1", "v2", "v3"}:
         verify_image_features(outputs_dir, args.sample_idx, args, checks)
         verify_point_features(outputs_dir, args.sample_idx, args, checks)
         verify_zero_shot(outputs_dir, args.sample_idx, args, checks)
-    if args.stage == "v2":
+    if args.stage in {"v2", "v3"}:
         verify_reliability(outputs_dir, args.sample_idx, checks)
+    if args.stage == "v3":
+        verify_training_dryrun(outputs_dir, args.sample_idx, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

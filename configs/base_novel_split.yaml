@@ -1,0 +1,37 @@
+ignore_classes:
+  - noise
+  - vehicle.ego
+
+base_classes:
+  - human.pedestrian.adult
+  - movable_object.barrier
+  - movable_object.trafficcone
+  - vehicle.bicycle
+  - vehicle.bus.rigid
+  - vehicle.car
+  - vehicle.construction
+  - vehicle.motorcycle
+  - vehicle.truck
+  - flat.driveable_surface
+  - flat.sidewalk
+  - terrain
+  - static.manmade
+  - static.vegetation
+
+novel_classes:
+  - animal
+  - human.pedestrian.child
+  - human.pedestrian.construction_worker
+  - human.pedestrian.personal_mobility
+  - human.pedestrian.police_officer
+  - human.pedestrian.stroller
+  - human.pedestrian.wheelchair
+  - movable_object.debris
+  - movable_object.pushable_pullable
+  - static_object.bicycle_rack
+  - vehicle.bus.bendy
+  - vehicle.emergency.ambulance
+  - vehicle.emergency.police
+  - vehicle.trailer
+  - flat.other
+  - static.other

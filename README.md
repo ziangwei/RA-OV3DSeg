@@ -20,6 +20,7 @@ RA-OV3DSeg/
   .gitignore
 
   configs/
+    base_novel_split.yaml
     nuscenes.yaml
     nuscenes_mini.yaml
 
@@ -31,6 +32,7 @@ RA-OV3DSeg/
     assign_2d_features_to_points.py
     zero_shot_eval.py
     compute_reliability.py
+    dry_run_training_step.py
     verify_mvp_outputs.py
 
   ra_ov3dseg/
@@ -270,5 +272,37 @@ python scripts/verify_mvp_outputs.py \
   --sample_idx 0 \
   --outputs_dir outputs \
   --stage v2 \
+  --output_dir outputs/verification
+```
+
+## MVP-v3 用法
+
+MVP-v3 仍然不是正式训练，只做一次单帧 dry-run，验证训练所需接口可以闭环：
+
+- lidarseg label 能读取并映射到 base-class train ids
+- novel / ignore classes 在 CE loss 中被 ignore
+- 最小 point MLP 能 forward
+- CE loss 和 reliability-weighted cosine distillation loss 能 backward
+
+```bash
+python scripts/dry_run_training_step.py \
+  --dataroot /path/to/nuscenes \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --point_feature_dir outputs/point_features \
+  --reliability_dir outputs/reliability \
+  --class_names_path configs/nuscenes_lidarseg_class_names.txt \
+  --split_config configs/base_novel_split.yaml \
+  --device cpu \
+  --output_dir outputs/training_dryrun
+```
+
+验证 v3 输出：
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v3 \
   --output_dir outputs/verification
 ```
