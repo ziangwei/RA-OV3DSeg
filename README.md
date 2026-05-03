@@ -33,6 +33,7 @@ RA-OV3DSeg/
     zero_shot_eval.py
     compute_reliability.py
     dry_run_training_step.py
+    train_3d_segmentor.py
     verify_mvp_outputs.py
 
   ra_ov3dseg/
@@ -305,4 +306,95 @@ python scripts/verify_mvp_outputs.py \
   --outputs_dir outputs \
   --stage v3 \
   --output_dir outputs/verification
+```
+
+## MVP-v4 用法
+
+MVP-v4 开始做小规模真实训练，主入口是通用 3D segmentor trainer。当前可运行 backbone 是 `debug_point_mlp`，它只用于验证训练工程闭环，不是最终实验模型：
+
+- 输入：3D point xyz。
+- 监督：base classes 用 lidarseg CE loss，novel / ignore classes 在 CE 中忽略。
+- 蒸馏：用已经缓存的 CLIP/SigLIP point features 做 reliability-weighted cosine distillation。
+- 输出：`outputs/training_v4/train_summary.json` 和 `point_mlp_latest.pt`。
+
+训练前必须先对同一批 `sample_idx` 跑完 v0-v2，确保 `outputs/point_features/` 和 `outputs/reliability/` 中存在对应 `.npz`。后续正式模型会在同一个入口下接 `sparse_unet_spconv` / SPVCNN 类 backbone。
+
+单卡 H100 / A100 / V100：
+
+```bash
+python scripts/train_3d_segmentor.py \
+  --dataroot ${NUSCENES_ROOT} \
+  --version v1.0-mini \
+  --start_idx 0 \
+  --max_samples 8 \
+  --backbone debug_point_mlp \
+  --point_feature_dir outputs/point_features \
+  --reliability_dir outputs/reliability \
+  --device cuda \
+  --epochs 2 \
+  --batch_size 1 \
+  --max_points 20000 \
+  --amp \
+  --output_dir outputs/training_v4
+```
+
+多卡 DDP：
+
+```bash
+torchrun --standalone --nproc_per_node=2 scripts/train_3d_segmentor.py \
+  --dataroot ${NUSCENES_ROOT} \
+  --version v1.0-mini \
+  --start_idx 0 \
+  --max_samples 8 \
+  --backbone debug_point_mlp \
+  --point_feature_dir outputs/point_features \
+  --reliability_dir outputs/reliability \
+  --device cuda \
+  --epochs 2 \
+  --batch_size 1 \
+  --max_points 20000 \
+  --amp \
+  --output_dir outputs/training_v4
+```
+
+验证 V4 训练产物：
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v4 \
+  --output_dir outputs/verification
+```
+
+## nuScenes trainval 数据准备
+
+V4 接口仍然可以先用 mini 跑通。正式实验才需要 `v1.0-trainval`。流式下载脚本会按“下载一个压缩包 -> 解压 -> 删除压缩包”的方式控制峰值空间：
+
+```bash
+bash scripts/server_prepare_nuscenes_trainval_streaming.sh \
+  --dataroot ${NUSCENES_ROOT} \
+  --download_dir ${NUSCENES_ROOT}/downloads_trainval
+```
+
+如果官网直链失败，先手动从 nuScenes 官网下载到 `${NUSCENES_ROOT}/downloads_trainval`，然后：
+
+```bash
+bash scripts/server_prepare_nuscenes_trainval_streaming.sh \
+  --dataroot ${NUSCENES_ROOT} \
+  --download_dir ${NUSCENES_ROOT}/downloads_trainval \
+  --skip_download
+```
+
+清理 trainval 数据默认只 dry-run，真正删除需要 `--yes`：
+
+```bash
+bash scripts/server_cleanup_nuscenes_trainval.sh \
+  --dataroot ${NUSCENES_ROOT} \
+  --download_dir ${NUSCENES_ROOT}/downloads_trainval
+
+bash scripts/server_cleanup_nuscenes_trainval.sh \
+  --dataroot ${NUSCENES_ROOT} \
+  --download_dir ${NUSCENES_ROOT}/downloads_trainval \
+  --yes
 ```

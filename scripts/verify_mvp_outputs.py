@@ -25,8 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3"],
-        help="Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, v3 training dry-run.",
+        choices=["v0", "v1", "v2", "v3", "v4"],
+        help=(
+            "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
+            "v3 training dry-run, v4 train checkpoint."
+        ),
     )
     parser.add_argument(
         "--min_projection_ratio",
@@ -57,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="outputs/verification",
         type=str,
         help="验证摘要输出目录。",
+    )
+    parser.add_argument(
+        "--training_v4_dir",
+        default=None,
+        type=str,
+        help="Optional V4 training output directory. Defaults to outputs_dir/training_v4.",
     )
     return parser
 
@@ -411,6 +420,61 @@ def verify_training_dryrun(outputs_dir: Path, sample_idx: int, checks: list[dict
     )
 
 
+def verify_training_v4(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    training_dir = Path(args.training_v4_dir) if args.training_v4_dir is not None else outputs_dir / "training_v4"
+    summary_path = training_dir / "train_summary.json"
+    default_latest = training_dir / "point_mlp_latest.pt"
+
+    if not check_file(summary_path, checks, "training_v4_summary_json"):
+        return
+
+    summary = load_json(summary_path)
+    latest_path = Path(summary.get("latest_checkpoint", str(default_latest)))
+    check_file(latest_path, checks, "training_v4_latest_checkpoint")
+
+    epoch_logs = summary.get("epoch_logs", [])
+    final_log = epoch_logs[-1] if epoch_logs else {}
+    avg_total_loss = float(final_log.get("avg_total_loss", float("nan")))
+    avg_ce_loss = float(final_log.get("avg_ce_loss", float("nan")))
+    avg_distill_loss = float(final_log.get("avg_distill_loss", float("nan")))
+    avg_grad_norm = float(final_log.get("avg_grad_norm", float("nan")))
+    epochs_completed = int(summary.get("epochs_completed", 0))
+    num_samples = int(summary.get("num_samples", 0))
+    points = int(final_log.get("points", 0))
+    base_points = int(final_log.get("base_supervised_points", 0))
+    distill_points = int(final_log.get("distill_points", 0))
+
+    add_check(
+        checks,
+        "training_v4_status",
+        summary.get("status") == "pass" and epochs_completed > 0 and num_samples > 0,
+        f"status={summary.get('status')}, epochs={epochs_completed}, samples={num_samples}",
+    )
+    add_check(
+        checks,
+        "training_v4_losses",
+        (
+            np.isfinite(avg_total_loss)
+            and np.isfinite(avg_ce_loss)
+            and np.isfinite(avg_distill_loss)
+            and avg_total_loss >= 0.0
+        ),
+        f"ce={avg_ce_loss:.6f}, distill={avg_distill_loss:.6f}, total={avg_total_loss:.6f}",
+    )
+    add_check(
+        checks,
+        "training_v4_grad",
+        np.isfinite(avg_grad_norm) and avg_grad_norm > 0.0,
+        f"avg_grad_norm={avg_grad_norm:.6f}",
+    )
+    add_check(
+        checks,
+        "training_v4_supervision",
+        points > 0 and base_points > 0 and distill_points > 0,
+        f"points={points}, base_supervised_points={base_points}, distill_points={distill_points}",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -420,14 +484,16 @@ def main() -> int:
 
     verify_projection(outputs_dir, args.sample_idx, args, checks)
     verify_overlays(outputs_dir, args.sample_idx, checks)
-    if args.stage in {"v1", "v2", "v3"}:
+    if args.stage in {"v1", "v2", "v3", "v4"}:
         verify_image_features(outputs_dir, args.sample_idx, args, checks)
         verify_point_features(outputs_dir, args.sample_idx, args, checks)
         verify_zero_shot(outputs_dir, args.sample_idx, args, checks)
-    if args.stage in {"v2", "v3"}:
+    if args.stage in {"v2", "v3", "v4"}:
         verify_reliability(outputs_dir, args.sample_idx, checks)
     if args.stage == "v3":
         verify_training_dryrun(outputs_dir, args.sample_idx, checks)
+    if args.stage == "v4":
+        verify_training_v4(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]
