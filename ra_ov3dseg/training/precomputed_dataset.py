@@ -165,6 +165,13 @@ def collate_point_feature_samples(samples: list[dict[str, Any]]) -> dict[str, An
         "sample_indices": [int(sample["sample_idx"]) for sample in samples],
         "sample_tokens": [str(sample["sample_token"]) for sample in samples],
         "point_xyz": cat_array("point_xyz").astype(np.float32),
+        "point_batch_indices": np.concatenate(
+            [
+                np.full(sample["point_xyz"].shape[0], batch_idx, dtype=np.int64)
+                for batch_idx, sample in enumerate(samples)
+            ],
+            axis=0,
+        ),
         "teacher_features": cat_array("teacher_features").astype(np.float32),
         "teacher_valid_mask": cat_array("teacher_valid_mask").astype(bool),
         "reliability_weight": cat_array("reliability_weight").astype(np.float32),

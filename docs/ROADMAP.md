@@ -45,7 +45,7 @@ dense open-vocabulary 2D teacher
 
 `sparse_unet_spconv`
 
-- Status: planned for V5.
+- Status: implemented as an MVP-v5 SparseUNet-Lite adapter.
 - Role: main 3D student backbone.
 - Target: voxelize points, run sparse U-Net, gather voxel features back to points, keep CE + reliability distillation losses.
 

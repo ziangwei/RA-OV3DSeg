@@ -29,11 +29,17 @@ class PointMLP(nn.Module):
         self.feature_head = nn.Linear(hidden_dim, feature_dim)
         self.classifier = nn.Linear(feature_dim, num_classes)
 
-    def forward(self, point_xyz: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(self, batch_or_point_xyz) -> dict[str, torch.Tensor]:
+        if isinstance(batch_or_point_xyz, dict):
+            point_xyz = batch_or_point_xyz["point_xyz"]
+        else:
+            point_xyz = batch_or_point_xyz
+
         hidden = self.backbone(point_xyz)
         point_features = F.normalize(self.feature_head(hidden), dim=-1)
         logits = self.classifier(point_features)
         return {
             "point_features": point_features,
             "logits": logits,
+            "model_valid_mask": torch.ones(point_xyz.shape[0], dtype=torch.bool, device=point_xyz.device),
         }

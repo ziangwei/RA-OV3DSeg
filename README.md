@@ -387,6 +387,63 @@ python scripts/verify_mvp_outputs.py \
   --output_dir outputs/verification
 ```
 
+## MVP-v5 Sparse 3D Student
+
+MVP-v5 adds the first non-debug 3D student: `--backbone sparse_unet_spconv`.
+It voxelizes LiDAR points, runs a compact spconv SparseUNet-style backbone, gathers voxel features back to points, and reuses the existing base CE + reliability-weighted distillation losses.
+
+Install the spconv wheel that matches your PyTorch CUDA build:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda)"
+pip install -r requirements-spconv-cu118.txt
+# or, for a CUDA 12.x PyTorch build:
+# pip install -r requirements-spconv-cu120.txt
+```
+
+Check voxelization first:
+
+```bash
+python scripts/check_voxelization.py \
+  --sample_idx 0 \
+  --point_feature_dir outputs/point_features \
+  --voxel_size 0.2 0.2 0.2 \
+  --point_cloud_range -54 -54 -5 54 54 3 \
+  --output_dir outputs/voxelization
+```
+
+Train the sparse student on mini:
+
+```bash
+python scripts/train_3d_segmentor.py \
+  --dataroot ${NUSCENES_ROOT} \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --backbone sparse_unet_spconv \
+  --point_feature_dir outputs/point_features \
+  --reliability_dir outputs/reliability \
+  --device cuda \
+  --epochs 5 \
+  --batch_size 1 \
+  --max_points 50000 \
+  --voxel_size 0.2 0.2 0.2 \
+  --point_cloud_range -54 -54 -5 54 54 3 \
+  --sparse_base_channels 32 \
+  --amp \
+  --output_dir outputs/training_v5
+```
+
+Verify V5:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v5 \
+  --training_v5_dir outputs/training_v5 \
+  --output_dir outputs/verification
+```
+
 ## nuScenes trainval 数据准备
 
 V4 接口仍然可以先用 mini 跑通。正式实验才需要 `v1.0-trainval`。流式下载脚本会按“下载一个压缩包 -> 解压 -> 删除压缩包”的方式控制峰值空间：

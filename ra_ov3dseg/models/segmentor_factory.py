@@ -32,12 +32,11 @@ def describe_backbone(backbone: str) -> SegmentorSpec:
     if backbone == SPARSE_UNET_BACKBONE:
         return SegmentorSpec(
             backbone=backbone,
-            role="production_backbone_interface",
+            role="sparse_3d_student",
             is_debug_model=False,
             description=(
-                "Planned sparse-convolution 3D segmentation backbone interface. "
-                "Implementation will be added in the next stage after selecting "
-                "spconv/MinkowskiEngine dependency strategy."
+                "MVP-v5 sparse-convolution 3D student using spconv voxelization, "
+                "SparseUNet-Lite context aggregation, and point-wise feature gather."
             ),
         )
     raise ValueError(f"Unknown backbone={backbone}. Supported backbones: {SUPPORTED_BACKBONES}")
@@ -49,6 +48,9 @@ def build_segmentor(
     hidden_dim: int,
     feature_dim: int,
     num_classes: int,
+    voxel_size: tuple[float, float, float] = (0.2, 0.2, 0.2),
+    point_cloud_range: tuple[float, float, float, float, float, float] = (-54.0, -54.0, -5.0, 54.0, 54.0, 3.0),
+    sparse_base_channels: int = 32,
 ):
     """Build the 3D segmentation model used by the generic trainer.
 
@@ -65,10 +67,14 @@ def build_segmentor(
         )
 
     if backbone == SPARSE_UNET_BACKBONE:
-        raise NotImplementedError(
-            "sparse_unet_spconv is the intended production backbone interface, "
-            "but it is not implemented yet. Use --backbone debug_point_mlp for MVP-v4 "
-            "smoke tests, or implement the spconv adapter in V5."
+        from ra_ov3dseg.models.sparse_unet_spconv import SparseUNetSpConv
+
+        return SparseUNetSpConv(
+            feature_dim=feature_dim,
+            num_classes=num_classes,
+            voxel_size=voxel_size,
+            point_cloud_range=point_cloud_range,
+            base_channels=sparse_base_channels,
         )
 
     raise ValueError(f"Unknown backbone={backbone}. Supported backbones: {SUPPORTED_BACKBONES}")

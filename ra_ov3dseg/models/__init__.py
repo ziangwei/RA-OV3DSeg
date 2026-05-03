@@ -7,6 +7,7 @@ from .segmentor_factory import (
     build_segmentor,
     describe_backbone,
 )
+from .voxelization import VoxelizationConfig, voxelize_point_features
 from .teacher_registry import (
     CLIP_PATCH_BASELINE,
     GROUNDED_SAM_MASK,
@@ -28,4 +29,6 @@ __all__ = [
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",
+    "VoxelizationConfig",
+    "voxelize_point_features",
 ]

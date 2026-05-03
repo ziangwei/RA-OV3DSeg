@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
 from ra_ov3dseg.models.segmentor_factory import (  # noqa: E402
     DEBUG_BACKBONE,
+    SPARSE_UNET_BACKBONE,
     SUPPORTED_BACKBONES,
     build_segmentor,
     describe_backbone,
@@ -33,7 +34,7 @@ from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generic MVP-v4 3D segmentor trainer with single-GPU and torchrun DDP support."
+        description="Generic MVP-v4/v5 3D segmentor trainer with single-GPU and torchrun DDP support."
     )
     parser.add_argument("--dataroot", required=True, type=str, help="nuScenes dataroot.")
     parser.add_argument("--version", default="v1.0-mini", type=str, help="nuScenes version.")
@@ -63,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num_workers", default=0, type=int)
     parser.add_argument("--max_points", default=20000, type=int, help="Subsample points per sample; <=0 keeps all.")
     parser.add_argument("--hidden_dim", default=128, type=int, help="Debug MLP hidden dim.")
+    parser.add_argument("--voxel_size", default=(0.2, 0.2, 0.2), nargs=3, type=float, metavar=("VX", "VY", "VZ"))
+    parser.add_argument(
+        "--point_cloud_range",
+        default=(-54.0, -54.0, -5.0, 54.0, 54.0, 3.0),
+        nargs=6,
+        type=float,
+        metavar=("X_MIN", "Y_MIN", "Z_MIN", "X_MAX", "Y_MAX", "Z_MAX"),
+    )
+    parser.add_argument("--sparse_base_channels", default=32, type=int, help="Base channels for sparse_unet_spconv.")
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--weight_decay", default=1e-4, type=float)
     parser.add_argument("--ce_weight", default=1.0, type=float)
@@ -134,6 +144,7 @@ def numpy_batch_to_torch(batch: dict[str, Any], torch_module, device) -> dict[st
         "sample_indices": batch["sample_indices"],
         "sample_tokens": batch["sample_tokens"],
         "point_xyz": torch_module.from_numpy(batch["point_xyz"]).to(device, non_blocking=True),
+        "point_batch_indices": torch_module.from_numpy(batch["point_batch_indices"]).long().to(device, non_blocking=True),
         "teacher_features": torch_module.from_numpy(batch["teacher_features"]).to(device, non_blocking=True),
         "teacher_valid_mask": torch_module.from_numpy(batch["teacher_valid_mask"]).bool().to(device, non_blocking=True),
         "reliability_weight": torch_module.from_numpy(batch["reliability_weight"]).float().to(device, non_blocking=True),
@@ -313,13 +324,21 @@ def main() -> int:
         hidden_dim=args.hidden_dim,
         feature_dim=feature_dim,
         num_classes=class_split.num_train_classes,
+        voxel_size=tuple(args.voxel_size),
+        point_cloud_range=tuple(args.point_cloud_range),
+        sparse_base_channels=args.sparse_base_channels,
     ).to(device)
     if distributed_state["distributed"]:
         device_ids = [int(distributed_state["local_rank"])] if device.type == "cuda" else None
-        model = DistributedDataParallel(model, device_ids=device_ids)
+        model = DistributedDataParallel(
+            model,
+            device_ids=device_ids,
+            find_unused_parameters=(args.backbone == SPARSE_UNET_BACKBONE),
+        )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scaler = torch.cuda.amp.GradScaler(enabled=bool(args.amp and device.type == "cuda"))
+    amp_enabled = bool(args.amp and device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
     if main_process:
         logger.info(
@@ -355,14 +374,20 @@ def main() -> int:
             torch_batch = numpy_batch_to_torch(batch, torch, device)
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.cuda.amp.autocast(enabled=bool(args.amp and device.type == "cuda")):
-                outputs = model(torch_batch["point_xyz"])
-                ce_loss = supervised_ce_loss(outputs["logits"], torch_batch["train_labels"], ignore_index=IGNORE_INDEX)
+            with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
+                outputs = model(torch_batch)
+                model_valid_mask = outputs.get(
+                    "model_valid_mask",
+                    torch.ones_like(torch_batch["train_labels"], dtype=torch.bool),
+                )
+                effective_train_labels = torch_batch["train_labels"].clone()
+                effective_train_labels[~model_valid_mask] = IGNORE_INDEX
+                ce_loss = supervised_ce_loss(outputs["logits"], effective_train_labels, ignore_index=IGNORE_INDEX)
                 distill_loss = cosine_distillation_loss(
                     student_features=outputs["point_features"],
                     teacher_features=torch_batch["teacher_features"],
                     weights=torch_batch["reliability_weight"],
-                    valid_mask=torch_batch["teacher_valid_mask"],
+                    valid_mask=torch_batch["teacher_valid_mask"] & model_valid_mask,
                 )
                 total_loss = args.ce_weight * ce_loss + args.distill_weight * distill_loss
 
@@ -372,10 +397,17 @@ def main() -> int:
             scaler.step(optimizer)
             scaler.update()
 
-            base_points = int(torch.sum(torch_batch["train_labels"] != IGNORE_INDEX).detach().cpu().item())
+            output_valid_mask = outputs.get(
+                "model_valid_mask",
+                torch.ones_like(torch_batch["train_labels"], dtype=torch.bool),
+            )
+            base_points = int(
+                torch.sum((torch_batch["train_labels"] != IGNORE_INDEX) & output_valid_mask).detach().cpu().item()
+            )
             distill_points = int(
                 torch.sum(
                     torch_batch["teacher_valid_mask"]
+                    & output_valid_mask
                     & torch.isfinite(torch_batch["reliability_weight"])
                     & (torch_batch["reliability_weight"] > 0.0)
                 )
@@ -466,6 +498,9 @@ def main() -> int:
             "epochs_completed": args.epochs,
             "batch_size_per_process": args.batch_size,
             "max_points_per_sample": max_points,
+            "voxel_size": list(args.voxel_size),
+            "point_cloud_range": list(args.point_cloud_range),
+            "sparse_base_channels": args.sparse_base_channels,
             "feature_dim": feature_dim,
             "num_base_train_classes": class_split.num_train_classes,
             "base_classes": class_split.base_class_names,
