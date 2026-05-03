@@ -55,6 +55,7 @@ class ImageEncoder:
             model_name,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
+            use_safetensors=True,
         )
 
         if not hasattr(self.model, "vision_model") or not hasattr(self.model, "get_image_features"):

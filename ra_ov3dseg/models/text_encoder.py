@@ -48,6 +48,7 @@ class TextEncoder:
             model_name,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
+            use_safetensors=True,
         )
 
         if not hasattr(self.model, "get_text_features"):
