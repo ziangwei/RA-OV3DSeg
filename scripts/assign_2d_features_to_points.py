@@ -113,6 +113,26 @@ def main() -> int:
             **assignment,
             "sample_idx": np.array(sample_idx, dtype=np.int32),
             "sample_token": projection_result["sample_token"],
+            "teacher_backend": (
+                image_features["teacher_backend"]
+                if "teacher_backend" in image_features
+                else np.array("legacy_unknown")
+            ),
+            "teacher_role": (
+                image_features["teacher_role"]
+                if "teacher_role" in image_features
+                else np.array("legacy_unknown")
+            ),
+            "teacher_feature_granularity": (
+                image_features["teacher_feature_granularity"]
+                if "teacher_feature_granularity" in image_features
+                else np.array("legacy_unknown")
+            ),
+            "is_baseline_teacher": (
+                image_features["is_baseline_teacher"]
+                if "is_baseline_teacher" in image_features
+                else np.array(True)
+            ),
             "model_name": image_features["model_name"],
             "cache_dir": image_features["cache_dir"] if "cache_dir" in image_features else np.array(""),
             "local_files_only": (
@@ -127,6 +147,26 @@ def main() -> int:
             "aggregation": args.aggregation,
             "num_points": int(assignment["point_xyz"].shape[0]),
             "num_valid_points": int(assignment["point_valid_mask"].sum()),
+            "teacher_backend": (
+                str(image_features["teacher_backend"].item())
+                if "teacher_backend" in image_features
+                else "legacy_unknown"
+            ),
+            "teacher_role": (
+                str(image_features["teacher_role"].item())
+                if "teacher_role" in image_features
+                else "legacy_unknown"
+            ),
+            "teacher_feature_granularity": (
+                str(image_features["teacher_feature_granularity"].item())
+                if "teacher_feature_granularity" in image_features
+                else "legacy_unknown"
+            ),
+            "is_baseline_teacher": (
+                bool(image_features["is_baseline_teacher"].item())
+                if "is_baseline_teacher" in image_features
+                else True
+            ),
             "model_name": str(image_features["model_name"].item()),
             "cache_dir": str(image_features["cache_dir"].item()) if "cache_dir" in image_features else "",
             "local_files_only": (

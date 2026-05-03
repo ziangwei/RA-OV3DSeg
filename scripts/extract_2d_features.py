@@ -11,7 +11,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset  # noqa: E402
-from ra_ov3dseg.models.image_encoder import ImageEncoder  # noqa: E402
+from ra_ov3dseg.models.teacher_registry import (  # noqa: E402
+    CLIP_PATCH_BASELINE,
+    SUPPORTED_TEACHERS,
+    build_image_teacher,
+    describe_teacher,
+)
 from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
@@ -23,6 +28,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int, help="指定单个 sample 索引。")
     parser.add_argument("--start_idx", default=0, type=int, help="批量提取时的起始 sample 索引。")
     parser.add_argument("--max_samples", default=1, type=int, help="批量提取多少个 sample。")
+    parser.add_argument(
+        "--teacher_backend",
+        default=CLIP_PATCH_BASELINE,
+        choices=list(SUPPORTED_TEACHERS),
+        help=(
+            "2D teacher backend. clip_patch_baseline is an MVP baseline; "
+            "openseg_dense is the planned dense teacher mainline."
+        ),
+    )
     parser.add_argument(
         "--model_name",
         default="openai/clip-vit-base-patch16",
@@ -72,7 +86,9 @@ def main() -> int:
         max_samples=args.max_samples,
     )
     output_dir = ensure_dir(args.output_dir)
-    encoder = ImageEncoder(
+    teacher_spec = describe_teacher(args.teacher_backend)
+    encoder = build_image_teacher(
+        teacher_backend=args.teacher_backend,
         model_name=args.model_name,
         device=args.device,
         cache_dir=args.cache_dir,
@@ -83,6 +99,10 @@ def main() -> int:
     batch_summary = {
         "version": args.version,
         "dataroot": str(Path(args.dataroot).resolve()),
+        "teacher_backend": args.teacher_backend,
+        "teacher_role": teacher_spec.role,
+        "teacher_feature_granularity": teacher_spec.feature_granularity,
+        "is_baseline_teacher": teacher_spec.is_baseline,
         "model_name": args.model_name,
         "cache_dir": args.cache_dir or "",
         "local_files_only": args.local_files_only,
@@ -190,6 +210,10 @@ def main() -> int:
             "resized_heights": resized_heights,
             "feature_maps": feature_maps,
             "image_embeddings": image_embeddings,
+            "teacher_backend": np.array(args.teacher_backend),
+            "teacher_role": np.array(teacher_spec.role),
+            "teacher_feature_granularity": np.array(teacher_spec.feature_granularity),
+            "is_baseline_teacher": np.array(teacher_spec.is_baseline),
             "model_name": np.array(args.model_name),
             "cache_dir": np.array(args.cache_dir or ""),
             "local_files_only": np.array(args.local_files_only),
@@ -197,6 +221,11 @@ def main() -> int:
         summary = {
             "sample_idx": sample_idx,
             "sample_token": sample["token"],
+            "teacher_backend": args.teacher_backend,
+            "teacher_role": teacher_spec.role,
+            "teacher_feature_granularity": teacher_spec.feature_granularity,
+            "is_baseline_teacher": teacher_spec.is_baseline,
+            "teacher_description": teacher_spec.description,
             "model_name": args.model_name,
             "cache_dir": args.cache_dir or "",
             "local_files_only": args.local_files_only,

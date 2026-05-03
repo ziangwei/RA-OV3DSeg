@@ -1,5 +1,22 @@
 # RA-OV3DSeg
 
+## Project Route Correction
+
+CLIP/SigLIP patch features are now treated as an MVP baseline only, not as the final 2D teacher. The intended mainline is a dense open-vocabulary 2D teacher, such as `openseg_dense`, that provides pixel-level semantic features or logits for projected LiDAR points.
+
+Teacher registry:
+
+- `clip_patch_baseline`: runnable smoke-test baseline.
+- `openseg_dense`: planned main dense teacher.
+- `grounded_sam_mask`: planned high-quality mask pseudo-label teacher.
+
+3D backbone registry:
+
+- `debug_point_mlp`: runnable training harness only.
+- `sparse_unet_spconv`: planned V5 sparse-conv 3D student.
+
+See `docs/ROADMAP.md` for the corrected project path.
+
 `RA-OV3DSeg` 是 `Reliability-Aware Open-Vocabulary 3D Segmentation` 的代码仓库。
 
 当前阶段只实现 MVP-v0，目标是先在 `nuScenes v1.0-mini` 上验证以下链路是否成立：
@@ -204,6 +221,7 @@ python scripts/extract_2d_features.py \
   --dataroot /path/to/nuscenes \
   --version v1.0-mini \
   --sample_idx 0 \
+  --teacher_backend clip_patch_baseline \
   --model_name openai/clip-vit-base-patch16 \
   --cache_dir /path/to/huggingface_cache \
   --output_dir outputs/features2d

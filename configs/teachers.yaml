@@ -1,0 +1,29 @@
+teachers:
+  clip_patch_baseline:
+    role: mvp_baseline
+    status: runnable
+    model_name: openai/clip-vit-base-patch16
+    feature_granularity: coarse_patch
+    intended_use: smoke_test_and_baseline
+    note: >
+      CLIP patch tokens are too coarse for final point-level 2D-to-3D distillation.
+      Keep this backend only as the MVP baseline.
+
+  openseg_dense:
+    role: main_dense_teacher
+    status: planned
+    model_name: null
+    feature_granularity: dense_pixel
+    intended_use: final_mainline_teacher
+    note: >
+      Preferred teacher direction for V6: dense open-vocabulary pixel features or logits,
+      sampled at projected LiDAR point locations.
+
+  grounded_sam_mask:
+    role: high_quality_mask_teacher
+    status: planned
+    model_name: null
+    feature_granularity: open_vocab_mask
+    intended_use: high_quality_pseudo_labels
+    note: >
+      Heavy mask-level teacher for later refinement, not the first dense-teacher target.

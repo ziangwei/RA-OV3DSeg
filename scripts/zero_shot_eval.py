@@ -195,11 +195,35 @@ def main() -> int:
             class_names=np.asarray(class_names),
             prompts=np.asarray(text_result["prompts"]),
             text_embeddings=text_result["text_embeddings"].astype(np.float32),
+            teacher_backend=data["teacher_backend"] if "teacher_backend" in data else np.array("legacy_unknown"),
+            teacher_role=data["teacher_role"] if "teacher_role" in data else np.array("legacy_unknown"),
+            teacher_feature_granularity=(
+                data["teacher_feature_granularity"]
+                if "teacher_feature_granularity" in data
+                else np.array("legacy_unknown")
+            ),
+            is_baseline_teacher=(
+                data["is_baseline_teacher"]
+                if "is_baseline_teacher" in data
+                else np.array(True)
+            ),
             model_name=np.array(model_name),
         )
         summary = {
             "sample_idx": sample_idx,
             "sample_token": str(data["sample_token"].item()),
+            "teacher_backend": (
+                str(data["teacher_backend"].item()) if "teacher_backend" in data else "legacy_unknown"
+            ),
+            "teacher_role": str(data["teacher_role"].item()) if "teacher_role" in data else "legacy_unknown",
+            "teacher_feature_granularity": (
+                str(data["teacher_feature_granularity"].item())
+                if "teacher_feature_granularity" in data
+                else "legacy_unknown"
+            ),
+            "is_baseline_teacher": (
+                bool(data["is_baseline_teacher"].item()) if "is_baseline_teacher" in data else True
+            ),
             "model_name": model_name,
             "cache_dir": cache_dir or "",
             "local_files_only": local_files_only,
