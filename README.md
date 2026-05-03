@@ -27,6 +27,9 @@ RA-OV3DSeg/
     check_nuscenes_sample.py
     project_lidar_to_cameras.py
     visualize_projection.py
+    extract_2d_features.py
+    assign_2d_features_to_points.py
+    zero_shot_eval.py
 
   ra_ov3dseg/
     datasets/
@@ -179,3 +182,50 @@ python scripts/visualize_projection.py \
 - 所有脚本都支持命令行参数。
 - 当前只面向 `v1.0-mini` 做链路验证。
 - 中间结果统一写到 `outputs/` 下。
+
+## MVP-v1 用法
+
+MVP-v1 需要 PyTorch。由于服务器的 CUDA / 驱动环境各不相同，建议你先按服务器实际环境安装合适的 `torch`，
+然后再执行：
+
+```bash
+pip install -r requirements.txt
+```
+
+### 1. 提取 2D 图像 patch features
+
+```bash
+python scripts/extract_2d_features.py \
+  --dataroot /path/to/nuscenes \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --model_name openai/clip-vit-base-patch16 \
+  --output_dir outputs/features2d
+```
+
+### 2. 根据投影结果把 2D features 赋给 3D 点
+
+```bash
+python scripts/assign_2d_features_to_points.py \
+  --sample_idx 0 \
+  --projection_dir outputs/projections \
+  --image_feature_dir outputs/features2d \
+  --output_dir outputs/point_features
+```
+
+### 3. 做最小 zero-shot baseline
+
+```bash
+python scripts/zero_shot_eval.py \
+  --sample_idx 0 \
+  --point_feature_dir outputs/point_features \
+  --class_names_path configs/nuscenes_lidarseg_class_names.txt \
+  --output_dir outputs/zero_shot
+```
+
+zero-shot 脚本会输出：
+
+- 预测结果 `.npz`
+- 预测摘要 `.json`
+- 一份彩色 `.ply` 点云
+- 一张俯视图 `BEV` 预测可视化

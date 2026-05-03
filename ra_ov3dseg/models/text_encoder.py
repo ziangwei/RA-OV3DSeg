@@ -1,9 +1,81 @@
-"""MVP-v1 预留：text encoder 封装。"""
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from ra_ov3dseg.models.image_encoder import _resolve_device
+
+
+def prettify_label_name(label_name: str) -> str:
+    """将 nuScenes 风格标签名转换成更适合文本提示的自然语言形式。"""
+
+    return label_name.replace(".", " ").replace("_", " ").strip()
 
 
 class TextEncoder:
-    def __init__(self, model_name: str) -> None:
+    """基于 Hugging Face Transformers 的 text encoder 封装。"""
+
+    def __init__(self, model_name: str, device: str = "auto") -> None:
         self.model_name = model_name
 
-    def encode_text(self, class_names):
-        raise NotImplementedError("MVP-v1 will implement text embedding extraction.")
+        try:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
+        except ImportError as exc:
+            raise ImportError(
+                "TextEncoder requires `torch` and `transformers`. "
+                "Please install PyTorch for your server CUDA/CPU environment, then install requirements."
+            ) from exc
+
+        self.torch = torch
+        self.device = _resolve_device(torch, device)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name)
+
+        if not hasattr(self.model, "get_text_features"):
+            raise ValueError(
+                f"Model `{model_name}` does not expose `get_text_features`; "
+                "use a CLIP/SigLIP style model."
+            )
+
+        self.model.eval()
+        self.model.to(self.device)
+
+    def build_prompts(self, class_names: list[str], prompt_template: str | None = None) -> list[str]:
+        if prompt_template is None:
+            return [prettify_label_name(class_name) for class_name in class_names]
+        return [prompt_template.format(prettify_label_name(class_name)) for class_name in class_names]
+
+    def encode_texts(
+        self,
+        class_names: list[str],
+        prompt_template: str | None = None,
+        normalize: bool = True,
+    ) -> dict[str, Any]:
+        prompts = self.build_prompts(class_names, prompt_template=prompt_template)
+        inputs = self.tokenizer(
+            prompts,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        )
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+
+        with self.torch.no_grad():
+            text_embeddings = self.model.get_text_features(**inputs)
+
+        text_embeddings_np = text_embeddings.detach().cpu().numpy().astype(np.float32)
+        if normalize:
+            text_norm = np.linalg.norm(text_embeddings_np, axis=-1, keepdims=True)
+            text_embeddings_np = text_embeddings_np / np.clip(text_norm, 1e-6, None)
+
+        return {
+            "class_names": class_names,
+            "prompts": prompts,
+            "text_embeddings": text_embeddings_np.astype(np.float32),
+            "model_name": self.model_name,
+        }
+
+    def encode_text(self, class_names: list[str], prompt_template: str | None = None) -> np.ndarray:
+        return self.encode_texts(class_names, prompt_template=prompt_template)["text_embeddings"]

@@ -26,3 +26,14 @@ def save_npz(path: str | Path, **arrays: Any) -> Path:
     ensure_dir(path.parent)
     np.savez_compressed(path, **arrays)
     return path
+
+
+def load_text_lines(path: str | Path) -> list[str]:
+    path = Path(path)
+    lines = []
+    with path.open("r", encoding="utf-8") as file:
+        for line in file:
+            item = line.strip()
+            if item:
+                lines.append(item)
+    return lines

@@ -4,3 +4,4 @@ matplotlib>=3.7
 PyYAML>=6.0
 pyquaternion>=0.9.9
 nuscenes-devkit>=1.1.11
+transformers>=4.40
