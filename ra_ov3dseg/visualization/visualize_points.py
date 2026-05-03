@@ -115,3 +115,96 @@ def save_bev_prediction_plot(
     fig.savefig(output_path)
     plt.close(fig)
     return output_path
+
+
+def score_to_colors(scores: np.ndarray, cmap_name: str = "viridis") -> np.ndarray:
+    scores = np.nan_to_num(scores.astype(np.float32), nan=0.0, posinf=1.0, neginf=0.0)
+    scores = np.clip(scores, 0.0, 1.0)
+    cmap = plt.get_cmap(cmap_name)
+    colors = cmap(scores)[:, :3]
+    return (colors * 255.0).astype(np.uint8)
+
+
+def save_score_point_cloud_ply(
+    point_xyz: np.ndarray,
+    scores: np.ndarray,
+    output_path: str | Path,
+    valid_mask: np.ndarray | None = None,
+    max_points: int | None = None,
+) -> Path:
+    output_path = Path(output_path)
+    ensure_dir(output_path.parent)
+
+    if valid_mask is None:
+        valid_mask = np.ones(point_xyz.shape[0], dtype=bool)
+    keep_indices = np.nonzero(valid_mask)[0]
+    if max_points is not None and keep_indices.shape[0] > max_points:
+        sampled = np.linspace(0, keep_indices.shape[0] - 1, num=max_points, dtype=np.int64)
+        keep_indices = keep_indices[sampled]
+
+    point_xyz = point_xyz[keep_indices]
+    colors = score_to_colors(scores[keep_indices])
+
+    with output_path.open("w", encoding="utf-8") as file:
+        file.write("ply\n")
+        file.write("format ascii 1.0\n")
+        file.write(f"element vertex {point_xyz.shape[0]}\n")
+        file.write("property float x\n")
+        file.write("property float y\n")
+        file.write("property float z\n")
+        file.write("property uchar red\n")
+        file.write("property uchar green\n")
+        file.write("property uchar blue\n")
+        file.write("end_header\n")
+        for point, color in zip(point_xyz, colors):
+            file.write(
+                f"{point[0]:.6f} {point[1]:.6f} {point[2]:.6f} "
+                f"{int(color[0])} {int(color[1])} {int(color[2])}\n"
+            )
+
+    return output_path
+
+
+def save_bev_score_plot(
+    point_xyz: np.ndarray,
+    scores: np.ndarray,
+    output_path: str | Path,
+    valid_mask: np.ndarray | None = None,
+    max_points: int | None = 40000,
+    title: str = "Point Reliability (BEV)",
+) -> Path:
+    output_path = Path(output_path)
+    ensure_dir(output_path.parent)
+
+    if valid_mask is None:
+        valid_mask = np.ones(point_xyz.shape[0], dtype=bool)
+    keep_indices = np.nonzero(valid_mask)[0]
+    if max_points is not None and keep_indices.shape[0] > max_points:
+        sampled = np.linspace(0, keep_indices.shape[0] - 1, num=max_points, dtype=np.int64)
+        keep_indices = keep_indices[sampled]
+
+    point_xyz = point_xyz[keep_indices]
+    scores = np.clip(np.nan_to_num(scores[keep_indices], nan=0.0), 0.0, 1.0)
+
+    fig, ax = plt.subplots(figsize=(8, 8), dpi=180)
+    scatter = ax.scatter(
+        point_xyz[:, 0],
+        point_xyz[:, 1],
+        c=scores,
+        cmap="viridis",
+        s=0.8,
+        alpha=0.85,
+        linewidths=0.0,
+        vmin=0.0,
+        vmax=1.0,
+    )
+    fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.02, label="Reliability")
+    ax.set_title(title)
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    ax.set_aspect("equal")
+    ax.grid(alpha=0.2)
+    fig.tight_layout()
+    fig.savefig(output_path)
+    plt.close(fig)
+    return output_path

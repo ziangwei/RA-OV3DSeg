@@ -30,6 +30,7 @@ RA-OV3DSeg/
     extract_2d_features.py
     assign_2d_features_to_points.py
     zero_shot_eval.py
+    compute_reliability.py
     verify_mvp_outputs.py
 
   ra_ov3dseg/
@@ -248,4 +249,26 @@ python scripts/verify_mvp_outputs.py \
 
 ```text
 outputs/verification/sample_0000_mvp_verify_summary.json
+```
+
+## MVP-v2 用法
+
+MVP-v2 只计算 point-level reliability score，不开始训练。
+
+```bash
+python scripts/compute_reliability.py \
+  --sample_idx 0 \
+  --projection_dir outputs/projections \
+  --zero_shot_dir outputs/zero_shot \
+  --output_dir outputs/reliability
+```
+
+然后验证 v2 输出：
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v2 \
+  --output_dir outputs/verification
 ```

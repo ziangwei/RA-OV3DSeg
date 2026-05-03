@@ -25,8 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1"],
-        help="检查到哪个阶段：v0 只检查投影/overlay，v1 额外检查 feature/zero-shot。",
+        choices=["v0", "v1", "v2"],
+        help="Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability.",
     )
     parser.add_argument(
         "--min_projection_ratio",
@@ -320,6 +320,61 @@ def verify_zero_shot(outputs_dir: Path, sample_idx: int, args, checks: list[dict
         )
 
 
+def verify_reliability(outputs_dir: Path, sample_idx: int, checks: list[dict[str, Any]]) -> None:
+    prefix = f"sample_{sample_idx:04d}"
+    reliability_npz = outputs_dir / "reliability" / f"{prefix}_reliability.npz"
+    reliability_summary = outputs_dir / "reliability" / f"{prefix}_reliability_summary.json"
+    bev_path = outputs_dir / "reliability" / f"{prefix}_reliability_bev.png"
+    ply_path = outputs_dir / "reliability" / f"{prefix}_reliability_points.ply"
+
+    if not check_file(reliability_npz, checks, "reliability_npz"):
+        return
+    check_file(reliability_summary, checks, "reliability_summary_json")
+    check_file(bev_path, checks, "reliability_bev_png")
+    check_file(ply_path, checks, "reliability_points_ply")
+
+    data = load_npz(reliability_npz)
+    required_keys = [
+        "point_xyz",
+        "point_valid_mask",
+        "distance_weight",
+        "geometric_weight",
+        "semantic_weight",
+        "reliability_weight",
+    ]
+    missing_keys = [key for key in required_keys if key not in data]
+    add_check(checks, "reliability_required_keys", not missing_keys, f"missing_keys={missing_keys}", missing_keys)
+    if missing_keys:
+        return
+
+    point_xyz = data["point_xyz"]
+    valid_mask = data["point_valid_mask"].astype(bool)
+    reliability_weight = data["reliability_weight"].astype(np.float32)
+    shape_ok = reliability_weight.shape[0] == point_xyz.shape[0]
+    finite_valid = np.isfinite(reliability_weight[valid_mask]).all() if np.any(valid_mask) else False
+    in_range = bool(np.all((reliability_weight >= -1e-6) & (reliability_weight <= 1.0 + 1e-6)))
+    nonzero_valid = int(np.sum(reliability_weight[valid_mask] > 0.0)) if np.any(valid_mask) else 0
+
+    add_check(
+        checks,
+        "reliability_shapes",
+        shape_ok,
+        f"point_xyz={point_xyz.shape}, reliability_weight={reliability_weight.shape}",
+    )
+    add_check(
+        checks,
+        "reliability_finite_and_range",
+        finite_valid and in_range,
+        f"finite_valid={finite_valid}, in_range={in_range}",
+    )
+    add_check(
+        checks,
+        "reliability_nonzero_valid",
+        nonzero_valid > 0,
+        f"nonzero_valid={nonzero_valid}, valid_points={int(valid_mask.sum())}",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -329,10 +384,12 @@ def main() -> int:
 
     verify_projection(outputs_dir, args.sample_idx, args, checks)
     verify_overlays(outputs_dir, args.sample_idx, checks)
-    if args.stage == "v1":
+    if args.stage in {"v1", "v2"}:
         verify_image_features(outputs_dir, args.sample_idx, args, checks)
         verify_point_features(outputs_dir, args.sample_idx, args, checks)
         verify_zero_shot(outputs_dir, args.sample_idx, args, checks)
+    if args.stage == "v2":
+        verify_reliability(outputs_dir, args.sample_idx, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]
