@@ -21,6 +21,12 @@ def save_json(path: str | Path, data: dict[str, Any]) -> Path:
     return path
 
 
+def load_json(path: str | Path) -> dict[str, Any]:
+    path = Path(path)
+    with path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
 def save_npz(path: str | Path, **arrays: Any) -> Path:
     path = Path(path)
     ensure_dir(path.parent)

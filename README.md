@@ -30,6 +30,7 @@ RA-OV3DSeg/
     extract_2d_features.py
     assign_2d_features_to_points.py
     zero_shot_eval.py
+    verify_mvp_outputs.py
 
   ra_ov3dseg/
     datasets/
@@ -231,3 +232,20 @@ zero-shot 脚本会输出：
 - 预测摘要 `.json`
 - 一份彩色 `.ply` 点云
 - 一张俯视图 `BEV` 预测可视化
+
+### 4. 一键检查 MVP 输出规格
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v1 \
+  --output_dir outputs/verification
+```
+
+脚本只读取现有输出，不重新跑模型。它会检查投影、2D feature、point feature、zero-shot 结果和可视化文件，
+并生成：
+
+```text
+outputs/verification/sample_0000_mvp_verify_summary.json
+```
