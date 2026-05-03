@@ -119,6 +119,33 @@ class ImageEncoder:
         }
         return pixel_values, metadata
 
+    def _apply_visual_projection(self, features: Any) -> Any:
+        if hasattr(self.model, "visual_projection"):
+            return self.model.visual_projection(features)
+        return features
+
+    def _extract_image_embedding(self, pixel_values: Any, vision_outputs: Any) -> np.ndarray:
+        """Extract a single image embedding in the same space as text embeddings."""
+
+        image_features = self.model.get_image_features(pixel_values=pixel_values)
+        if self.torch.is_tensor(image_features):
+            if image_features.ndim == 2 and image_features.shape[0] == 1:
+                return image_features[0].detach().cpu().numpy().astype(np.float32)
+            if image_features.ndim == 1:
+                return image_features.detach().cpu().numpy().astype(np.float32)
+
+        if hasattr(image_features, "image_embeds") and self.torch.is_tensor(image_features.image_embeds):
+            image_embeds = image_features.image_embeds
+            if image_embeds.ndim == 2 and image_embeds.shape[0] == 1:
+                return image_embeds[0].detach().cpu().numpy().astype(np.float32)
+
+        if not hasattr(vision_outputs, "pooler_output") or vision_outputs.pooler_output is None:
+            raise ValueError(f"Cannot extract pooled image embedding for model `{self.model_name}`.")
+
+        pooled_output = vision_outputs.pooler_output[0]
+        projected_output = self._apply_visual_projection(pooled_output)
+        return projected_output.detach().cpu().numpy().astype(np.float32)
+
     def _extract_patch_feature_map(self, vision_outputs: Any) -> np.ndarray:
         tokens = vision_outputs.last_hidden_state[0]
         num_tokens = int(tokens.shape[0])
@@ -135,20 +162,26 @@ class ImageEncoder:
                 tokens = tokens[1:]
                 num_tokens = int(tokens.shape[0])
             if num_tokens == expected_tokens:
-                return tokens.reshape(grid_height, grid_width, -1).detach().cpu().numpy().astype(np.float32)
+                feature_map = tokens.reshape(grid_height, grid_width, -1)
+                feature_map = self._apply_visual_projection(feature_map)
+                return feature_map.detach().cpu().numpy().astype(np.float32)
 
         if num_tokens > 1:
             inferred = int(round((num_tokens - 1) ** 0.5))
             if inferred * inferred == num_tokens - 1:
                 tokens = tokens[1:]
-                return tokens.reshape(inferred, inferred, -1).detach().cpu().numpy().astype(np.float32)
+                feature_map = tokens.reshape(inferred, inferred, -1)
+                feature_map = self._apply_visual_projection(feature_map)
+                return feature_map.detach().cpu().numpy().astype(np.float32)
 
         inferred = int(round(num_tokens**0.5))
         if inferred * inferred != num_tokens:
             raise ValueError(
                 f"Cannot infer patch grid from {num_tokens} tokens for model `{self.model_name}`."
             )
-        return tokens.reshape(inferred, inferred, -1).detach().cpu().numpy().astype(np.float32)
+        feature_map = tokens.reshape(inferred, inferred, -1)
+        feature_map = self._apply_visual_projection(feature_map)
+        return feature_map.detach().cpu().numpy().astype(np.float32)
 
     def encode_image(
         self,
@@ -163,10 +196,9 @@ class ImageEncoder:
                 output_hidden_states=True,
                 return_dict=True,
             )
-            image_embedding = self.model.get_image_features(pixel_values=pixel_values)[0]
+            image_embedding_np = self._extract_image_embedding(pixel_values, vision_outputs)
 
         patch_feature_map = self._extract_patch_feature_map(vision_outputs)
-        image_embedding_np = image_embedding.detach().cpu().numpy().astype(np.float32)
 
         if normalize:
             patch_norm = np.linalg.norm(patch_feature_map, axis=-1, keepdims=True)
