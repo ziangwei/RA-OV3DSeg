@@ -200,6 +200,7 @@ python scripts/extract_2d_features.py \
   --version v1.0-mini \
   --sample_idx 0 \
   --model_name openai/clip-vit-base-patch16 \
+  --cache_dir /path/to/huggingface_cache \
   --output_dir outputs/features2d
 ```
 
@@ -220,6 +221,7 @@ python scripts/zero_shot_eval.py \
   --sample_idx 0 \
   --point_feature_dir outputs/point_features \
   --class_names_path configs/nuscenes_lidarseg_class_names.txt \
+  --cache_dir /path/to/huggingface_cache \
   --output_dir outputs/zero_shot
 ```
 

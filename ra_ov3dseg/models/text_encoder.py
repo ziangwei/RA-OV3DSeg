@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -16,8 +17,16 @@ def prettify_label_name(label_name: str) -> str:
 class TextEncoder:
     """基于 Hugging Face Transformers 的 text encoder 封装。"""
 
-    def __init__(self, model_name: str, device: str = "auto") -> None:
+    def __init__(
+        self,
+        model_name: str,
+        device: str = "auto",
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
+    ) -> None:
         self.model_name = model_name
+        self.cache_dir = str(Path(cache_dir).expanduser().resolve()) if cache_dir is not None else None
+        self.local_files_only = local_files_only
 
         try:
             import torch
@@ -30,13 +39,21 @@ class TextEncoder:
 
         self.torch = torch
         self.device = _resolve_device(torch, device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+        )
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+        )
 
         if not hasattr(self.model, "get_text_features"):
             raise ValueError(
                 f"Model `{model_name}` does not expose `get_text_features`; "
-                "use a CLIP/SigLIP style model."
+                "use a CLIP/SigLIP style model such as `openai/clip-vit-base-patch16`."
             )
 
         self.model.eval()
@@ -75,6 +92,7 @@ class TextEncoder:
             "prompts": prompts,
             "text_embeddings": text_embeddings_np.astype(np.float32),
             "model_name": self.model_name,
+            "cache_dir": self.cache_dir or "",
         }
 
     def encode_text(self, class_names: list[str], prompt_template: str | None = None) -> np.ndarray:

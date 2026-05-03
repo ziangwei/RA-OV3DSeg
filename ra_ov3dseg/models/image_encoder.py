@@ -24,8 +24,16 @@ class ImageEncoder:
     不做 center crop”的策略，便于把原图像素坐标稳定映射回 patch feature grid。
     """
 
-    def __init__(self, model_name: str, device: str = "auto") -> None:
+    def __init__(
+        self,
+        model_name: str,
+        device: str = "auto",
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
+    ) -> None:
         self.model_name = model_name
+        self.cache_dir = str(Path(cache_dir).expanduser().resolve()) if cache_dir is not None else None
+        self.local_files_only = local_files_only
 
         try:
             import torch
@@ -38,13 +46,22 @@ class ImageEncoder:
 
         self.torch = torch
         self.device = _resolve_device(torch, device)
-        self.image_processor = AutoImageProcessor.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
+        self.image_processor = AutoImageProcessor.from_pretrained(
+            model_name,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+        )
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+        )
 
         if not hasattr(self.model, "vision_model") or not hasattr(self.model, "get_image_features"):
             raise ValueError(
                 f"Model `{model_name}` does not expose `vision_model` and `get_image_features`; "
-                "use a CLIP/SigLIP style model."
+                "use a CLIP/SigLIP style model such as `openai/clip-vit-base-patch16`. "
+                "Pure timm vision backbones are not enough for the current zero-shot text pipeline."
             )
 
         self.model.eval()
@@ -163,6 +180,7 @@ class ImageEncoder:
                 "feature_grid_width": int(patch_feature_map.shape[1]),
                 "feature_dim": int(patch_feature_map.shape[2]),
                 "model_name": self.model_name,
+                "cache_dir": self.cache_dir or "",
             }
         )
         return {

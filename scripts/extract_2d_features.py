@@ -29,6 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Hugging Face 上的图像/文本共享模型名，例如 openai/clip-vit-base-patch16。",
     )
+    parser.add_argument(
+        "--cache_dir",
+        default=None,
+        type=str,
+        help="Hugging Face 模型缓存目录，例如 /path/to/huggingface_cache。",
+    )
+    parser.add_argument(
+        "--local_files_only",
+        action="store_true",
+        help="只读取本地缓存，不联网下载模型。",
+    )
     parser.add_argument("--device", default="auto", type=str, help="运行设备：auto/cpu/cuda。")
     parser.add_argument(
         "--feature_dtype",
@@ -61,13 +72,20 @@ def main() -> int:
         max_samples=args.max_samples,
     )
     output_dir = ensure_dir(args.output_dir)
-    encoder = ImageEncoder(model_name=args.model_name, device=args.device)
+    encoder = ImageEncoder(
+        model_name=args.model_name,
+        device=args.device,
+        cache_dir=args.cache_dir,
+        local_files_only=args.local_files_only,
+    )
     feature_dtype = np.float16 if args.feature_dtype == "float16" else np.float32
 
     batch_summary = {
         "version": args.version,
         "dataroot": str(Path(args.dataroot).resolve()),
         "model_name": args.model_name,
+        "cache_dir": args.cache_dir or "",
+        "local_files_only": args.local_files_only,
         "device": encoder.device,
         "sample_indices": sample_indices,
         "samples": [],
@@ -173,11 +191,15 @@ def main() -> int:
             "feature_maps": feature_maps,
             "image_embeddings": image_embeddings,
             "model_name": np.array(args.model_name),
+            "cache_dir": np.array(args.cache_dir or ""),
+            "local_files_only": np.array(args.local_files_only),
         }
         summary = {
             "sample_idx": sample_idx,
             "sample_token": sample["token"],
             "model_name": args.model_name,
+            "cache_dir": args.cache_dir or "",
+            "local_files_only": args.local_files_only,
             "feature_dtype": args.feature_dtype,
             "cameras": summary_cameras,
         }

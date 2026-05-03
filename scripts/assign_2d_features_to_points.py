@@ -114,6 +114,12 @@ def main() -> int:
             "sample_idx": np.array(sample_idx, dtype=np.int32),
             "sample_token": projection_result["sample_token"],
             "model_name": image_features["model_name"],
+            "cache_dir": image_features["cache_dir"] if "cache_dir" in image_features else np.array(""),
+            "local_files_only": (
+                image_features["local_files_only"]
+                if "local_files_only" in image_features
+                else np.array(False)
+            ),
         }
         summary = {
             "sample_idx": sample_idx,
@@ -122,6 +128,12 @@ def main() -> int:
             "num_points": int(assignment["point_xyz"].shape[0]),
             "num_valid_points": int(assignment["point_valid_mask"].sum()),
             "model_name": str(image_features["model_name"].item()),
+            "cache_dir": str(image_features["cache_dir"].item()) if "cache_dir" in image_features else "",
+            "local_files_only": (
+                bool(image_features["local_files_only"].item())
+                if "local_files_only" in image_features
+                else False
+            ),
             "projection_npz": str(projection_npz),
             "image_feature_npz": str(image_feature_npz),
             "output_npz": str(output_npz),

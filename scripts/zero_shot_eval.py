@@ -34,6 +34,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="文本编码模型名。默认从点特征文件中读取与图像侧相同的模型名。",
     )
     parser.add_argument(
+        "--cache_dir",
+        default=None,
+        type=str,
+        help="Hugging Face 模型缓存目录，例如 /path/to/huggingface_cache。",
+    )
+    parser.add_argument(
+        "--local_files_only",
+        action="store_true",
+        help="只读取本地缓存，不联网下载模型。",
+    )
+    parser.add_argument(
         "--class_names_path",
         default="configs/nuscenes_lidarseg_class_names.txt",
         type=str,
@@ -121,8 +132,21 @@ def main() -> int:
             continue
 
         model_name = args.model_name or str(data["model_name"].item())
+        cache_dir = args.cache_dir
+        if cache_dir is None and "cache_dir" in data:
+            cached_value = str(data["cache_dir"].item())
+            cache_dir = cached_value if cached_value else None
+        local_files_only = args.local_files_only
+        if not local_files_only and "local_files_only" in data:
+            local_files_only = bool(data["local_files_only"].item())
+
         if text_encoder is None or text_encoder.model_name != model_name:
-            text_encoder = TextEncoder(model_name=model_name, device=args.device)
+            text_encoder = TextEncoder(
+                model_name=model_name,
+                device=args.device,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+            )
         text_result = text_encoder.encode_texts(class_names, prompt_template=args.prompt_template, normalize=True)
 
         point_xyz = data["point_xyz"].astype(np.float32)
@@ -177,6 +201,8 @@ def main() -> int:
             "sample_idx": sample_idx,
             "sample_token": str(data["sample_token"].item()),
             "model_name": model_name,
+            "cache_dir": cache_dir or "",
+            "local_files_only": local_files_only,
             "num_points": int(point_xyz.shape[0]),
             "num_valid_points": int(point_valid_mask.sum()),
             "num_classes": len(class_names),
