@@ -5,9 +5,10 @@ from pathlib import Path
 
 
 CLIP_PATCH_BASELINE = "clip_patch_baseline"
+CLIPSEG_DENSE = "clipseg_dense"
 OPENSEG_DENSE = "openseg_dense"
 GROUNDED_SAM_MASK = "grounded_sam_mask"
-SUPPORTED_TEACHERS = (CLIP_PATCH_BASELINE, OPENSEG_DENSE, GROUNDED_SAM_MASK)
+SUPPORTED_TEACHERS = (CLIP_PATCH_BASELINE, CLIPSEG_DENSE, OPENSEG_DENSE, GROUNDED_SAM_MASK)
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,19 @@ def describe_teacher(teacher_backend: str) -> TeacherSpec:
             description=(
                 "Planned main teacher: dense open-vocabulary pixel-level features or logits. "
                 "This is the preferred route for point-level 2D-to-3D distillation."
+            ),
+        )
+
+    if teacher_backend == CLIPSEG_DENSE:
+        return TeacherSpec(
+            name=teacher_backend,
+            role="runnable_dense_teacher",
+            feature_granularity="dense_class_logits",
+            is_baseline=True,
+            description=(
+                "Runnable dense open-vocabulary segmentation teacher based on CLIPSeg. "
+                "It produces per-class dense logits and is stronger than CLIP patch tokens, "
+                "but remains a practical baseline before an OpenSeg/OVSeg adapter is added."
             ),
         )
 
@@ -89,6 +103,12 @@ def build_image_teacher(
             "openseg_dense is the intended main dense teacher, but it is not implemented yet. "
             "Use --teacher_backend clip_patch_baseline for MVP smoke tests, then add the "
             "OpenSeg/OVSeg adapter in the dense-teacher stage."
+        )
+
+    if teacher_backend == CLIPSEG_DENSE:
+        raise NotImplementedError(
+            "clipseg_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
+            "instead of scripts/extract_2d_features.py."
         )
 
     if teacher_backend == GROUNDED_SAM_MASK:

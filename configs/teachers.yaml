@@ -19,6 +19,17 @@ teachers:
       Preferred teacher direction for V6: dense open-vocabulary pixel features or logits,
       sampled at projected LiDAR point locations.
 
+  clipseg_dense:
+    role: runnable_dense_teacher
+    status: runnable
+    model_name: CIDAS/clipseg-rd64-refined
+    feature_granularity: dense_class_logits
+    intended_use: dense_teacher_v6a
+    note: >
+      Runnable dense class-logit teacher. It is stronger than CLIP patch tokens for
+      projected point supervision, but should still be treated as a baseline before
+      an OpenSeg/OVSeg adapter is available.
+
   grounded_sam_mask:
     role: high_quality_mask_teacher
     status: planned

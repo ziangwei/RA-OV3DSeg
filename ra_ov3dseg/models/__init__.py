@@ -9,6 +9,7 @@ from .segmentor_factory import (
 )
 from .voxelization import VoxelizationConfig, voxelize_point_features
 from .teacher_registry import (
+    CLIPSEG_DENSE,
     CLIP_PATCH_BASELINE,
     GROUNDED_SAM_MASK,
     OPENSEG_DENSE,
@@ -24,6 +25,7 @@ __all__ = [
     "build_segmentor",
     "describe_backbone",
     "CLIP_PATCH_BASELINE",
+    "CLIPSEG_DENSE",
     "OPENSEG_DENSE",
     "GROUNDED_SAM_MASK",
     "SUPPORTED_TEACHERS",

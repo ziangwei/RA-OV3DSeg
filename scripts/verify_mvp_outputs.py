@@ -25,10 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
-            "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint."
+            "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
+            "v6 dense teacher logits."
         ),
     )
     parser.add_argument(
@@ -72,6 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=str,
         help="Optional V5 training output directory. Defaults to outputs_dir/training_v5.",
+    )
+    parser.add_argument(
+        "--dense_teacher_dir",
+        default=None,
+        type=str,
+        help="Optional V6 dense teacher logit directory. Defaults to outputs_dir/dense_teacher_logits.",
+    )
+    parser.add_argument(
+        "--dense_point_dir",
+        default=None,
+        type=str,
+        help="Optional V6 dense point logit directory. Defaults to outputs_dir/dense_point_logits.",
     )
     return parser
 
@@ -542,6 +555,96 @@ def verify_training_v5(outputs_dir: Path, args, checks: list[dict[str, Any]]) ->
     )
 
 
+def verify_dense_teacher_v6(outputs_dir: Path, sample_idx: int, args, checks: list[dict[str, Any]]) -> None:
+    prefix = f"sample_{sample_idx:04d}"
+    dense_teacher_dir = Path(args.dense_teacher_dir) if args.dense_teacher_dir is not None else outputs_dir / "dense_teacher_logits"
+    dense_point_dir = Path(args.dense_point_dir) if args.dense_point_dir is not None else outputs_dir / "dense_point_logits"
+    dense_npz = dense_teacher_dir / f"{prefix}_dense_teacher_logits.npz"
+    dense_summary = dense_teacher_dir / f"{prefix}_dense_teacher_logits_summary.json"
+    point_npz = dense_point_dir / f"{prefix}_dense_point_logits.npz"
+    point_summary = dense_point_dir / f"{prefix}_dense_point_logits_summary.json"
+
+    if not check_file(dense_npz, checks, "dense_teacher_npz"):
+        return
+    check_file(dense_summary, checks, "dense_teacher_summary_json")
+    dense = load_npz(dense_npz)
+    dense_required = ["dense_logits", "camera_names", "camera_available", "class_names", "teacher_backend", "model_name"]
+    missing_dense = [key for key in dense_required if key not in dense]
+    add_check(checks, "dense_teacher_required_keys", not missing_dense, f"missing_keys={missing_dense}", missing_dense)
+    if missing_dense:
+        return
+
+    dense_logits = dense["dense_logits"]
+    camera_available = dense["camera_available"].astype(bool)
+    class_names = dense["class_names"]
+    teacher_backend = str(dense["teacher_backend"].item())
+    dense_shape_ok = (
+        dense_logits.ndim == 4
+        and dense_logits.shape[0] == EXPECTED_CAMERA_COUNT
+        and dense_logits.shape[1] == class_names.shape[0]
+        and dense_logits.shape[2] > 0
+        and dense_logits.shape[3] > 0
+    )
+    add_check(
+        checks,
+        "dense_teacher_shapes",
+        dense_shape_ok,
+        f"dense_logits={dense_logits.shape}, class_names={class_names.shape}, backend={teacher_backend}",
+    )
+    add_check(
+        checks,
+        "dense_teacher_available_cameras",
+        int(camera_available.sum()) == EXPECTED_CAMERA_COUNT,
+        f"available_cameras={int(camera_available.sum())}",
+    )
+    add_check(
+        checks,
+        "dense_teacher_backend",
+        teacher_backend == "clipseg_dense",
+        f"teacher_backend={teacher_backend}",
+    )
+
+    if not check_file(point_npz, checks, "dense_point_npz"):
+        return
+    check_file(point_summary, checks, "dense_point_summary_json")
+    point = load_npz(point_npz)
+    point_required = [
+        "point_xyz",
+        "point_teacher_logits",
+        "point_dense_valid_mask",
+        "point_dense_pred_label_indices",
+        "class_names",
+    ]
+    missing_point = [key for key in point_required if key not in point]
+    add_check(checks, "dense_point_required_keys", not missing_point, f"missing_keys={missing_point}", missing_point)
+    if missing_point:
+        return
+
+    point_xyz = point["point_xyz"]
+    point_logits = point["point_teacher_logits"]
+    point_valid = point["point_dense_valid_mask"].astype(bool)
+    point_classes = point["class_names"]
+    valid_ratio = float(point_valid.sum() / max(point_xyz.shape[0], 1))
+    add_check(
+        checks,
+        "dense_point_shapes",
+        (
+            point_xyz.ndim == 2
+            and point_xyz.shape[1] == 3
+            and point_logits.ndim == 2
+            and point_logits.shape[0] == point_xyz.shape[0]
+            and point_logits.shape[1] == point_classes.shape[0]
+        ),
+        f"point_xyz={point_xyz.shape}, point_teacher_logits={point_logits.shape}, class_names={point_classes.shape}",
+    )
+    add_check(
+        checks,
+        "dense_point_valid_ratio",
+        valid_ratio >= args.min_point_feature_ratio,
+        f"valid_ratio={valid_ratio:.6f}, valid_points={int(point_valid.sum())}, total={int(point_xyz.shape[0])}",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -563,6 +666,8 @@ def main() -> int:
         verify_training_v4(outputs_dir, args, checks)
     if args.stage == "v5":
         verify_training_v5(outputs_dir, args, checks)
+    if args.stage == "v6":
+        verify_dense_teacher_v6(outputs_dir, args.sample_idx, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

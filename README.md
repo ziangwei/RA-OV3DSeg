@@ -444,6 +444,48 @@ python scripts/verify_mvp_outputs.py \
   --output_dir outputs/verification
 ```
 
+## MVP-v6 Dense Teacher
+
+V6-A adds a runnable dense teacher path using `clipseg_dense`. It generates dense class logits for each camera image, then samples those logits at projected LiDAR point locations.
+
+Extract dense teacher logits:
+
+```bash
+python scripts/extract_dense_teacher_logits.py \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --teacher_backend clipseg_dense \
+  --model_name CIDAS/clipseg-rd64-refined \
+  --cache_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache \
+  --device cuda \
+  --class_names_path configs/nuscenes_lidarseg_class_names.txt \
+  --prompt_batch_size 8 \
+  --output_dir outputs/dense_teacher_logits
+```
+
+Assign dense logits to points:
+
+```bash
+python scripts/assign_dense_logits_to_points.py \
+  --sample_idx 0 \
+  --projection_dir outputs/projections \
+  --dense_teacher_dir outputs/dense_teacher_logits \
+  --output_dir outputs/dense_point_logits
+```
+
+Verify V6:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v6 \
+  --dense_teacher_dir outputs/dense_teacher_logits \
+  --dense_point_dir outputs/dense_point_logits \
+  --output_dir outputs/verification
+```
+
 ## nuScenes trainval 数据准备
 
 V4 接口仍然可以先用 mini 跑通。正式实验才需要 `v1.0-trainval`。流式下载脚本会按“下载一个压缩包 -> 解压 -> 删除压缩包”的方式控制峰值空间：

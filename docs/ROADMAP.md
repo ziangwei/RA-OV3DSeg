@@ -70,6 +70,18 @@ image
   -> projected point sampling
 ```
 
+V6-A implements `clipseg_dense` as a runnable dense class-logit teacher:
+
+```text
+camera image + class prompts
+  -> CLIPSeg dense class logits
+  -> projected point sampling
+  -> point-level dense teacher logits
+```
+
+`openseg_dense` remains the preferred final dense teacher direction once a stable
+checkpoint and dependency path are selected.
+
 The final experiments should compare:
 
 - CLIP patch baseline.
