@@ -25,6 +25,10 @@ def default_reliability_path(reliability_dir: str | Path, sample_idx: int) -> Pa
     return Path(reliability_dir).expanduser().resolve() / f"sample_{sample_idx:04d}_reliability.npz"
 
 
+def default_dense_point_path(dense_point_dir: str | Path, sample_idx: int) -> Path:
+    return Path(dense_point_dir).expanduser().resolve() / f"sample_{sample_idx:04d}_dense_point_logits.npz"
+
+
 def find_missing_precomputed_files(
     sample_indices: list[int],
     point_feature_dir: str | Path,
@@ -46,6 +50,24 @@ def find_missing_precomputed_files(
                 {
                     "sample_idx": int(sample_idx),
                     "missing_files": "\n".join(missing_files),
+                }
+            )
+    return missing
+
+
+def find_missing_dense_point_files(
+    sample_indices: list[int],
+    dense_point_dir: str | Path,
+) -> list[dict[str, str | int]]:
+    dense_point_dir = Path(dense_point_dir).expanduser().resolve()
+    missing: list[dict[str, str | int]] = []
+    for sample_idx in sample_indices:
+        dense_point_path = default_dense_point_path(dense_point_dir, sample_idx)
+        if not dense_point_path.exists():
+            missing.append(
+                {
+                    "sample_idx": int(sample_idx),
+                    "missing_files": str(dense_point_path),
                 }
             )
     return missing
@@ -84,6 +106,9 @@ class PrecomputedPointFeatureDataset:
         point_feature_dir: str | Path,
         reliability_dir: str | Path,
         class_split: ClassSplit,
+        dense_point_dir: str | Path | None = None,
+        load_dense_logits: bool = False,
+        dense_logit_space: str = "base",
         max_points: int | None = None,
         seed: int = 0,
         ignore_index: int = IGNORE_INDEX,
@@ -95,10 +120,17 @@ class PrecomputedPointFeatureDataset:
         self.sample_indices = list(sample_indices)
         self.point_feature_dir = Path(point_feature_dir).expanduser().resolve()
         self.reliability_dir = Path(reliability_dir).expanduser().resolve()
+        self.dense_point_dir = Path(dense_point_dir).expanduser().resolve() if dense_point_dir is not None else None
+        self.load_dense_logits = load_dense_logits
+        self.dense_logit_space = dense_logit_space
         self.class_split = class_split
         self.max_points = max_points
         self.seed = seed
         self.ignore_index = ignore_index
+        if self.load_dense_logits and self.dense_point_dir is None:
+            raise ValueError("dense_point_dir is required when load_dense_logits=True.")
+        if self.dense_logit_space not in {"base", "all_lidarseg"}:
+            raise ValueError("dense_logit_space must be one of: base, all_lidarseg.")
 
     def __len__(self) -> int:
         return len(self.sample_indices)
@@ -126,6 +158,13 @@ class PrecomputedPointFeatureDataset:
         teacher_features = point_data["point_features"].astype(np.float32)
         teacher_valid_mask = point_data["point_valid_mask"].astype(bool)
         reliability_weight = reliability_data["reliability_weight"].astype(np.float32)
+        dense_logit_dim = (
+            self.class_split.num_classes if self.dense_logit_space == "all_lidarseg" else self.class_split.num_train_classes
+        )
+        dense_teacher_logits = np.zeros((point_xyz.shape[0], dense_logit_dim), dtype=np.float32)
+        dense_teacher_valid_mask = np.zeros(point_xyz.shape[0], dtype=bool)
+        dense_teacher_confidence = np.zeros(point_xyz.shape[0], dtype=np.float32)
+        dense_point_path: Path | None = None
 
         if raw_labels.shape[0] != point_xyz.shape[0]:
             raise ValueError(f"label/point count mismatch: labels={raw_labels.shape[0]}, points={point_xyz.shape[0]}")
@@ -136,7 +175,50 @@ class PrecomputedPointFeatureDataset:
         if reliability_weight.shape[0] != point_xyz.shape[0]:
             raise ValueError("reliability count does not match point count.")
 
+        if self.load_dense_logits:
+            dense_point_path = default_dense_point_path(self.dense_point_dir, sample_idx)
+            if not dense_point_path.exists():
+                raise FileNotFoundError(f"dense point logits npz not found: {dense_point_path}")
+            dense_data = load_npz(dense_point_path)
+            point_teacher_logits = dense_data["point_teacher_logits"].astype(np.float32)
+            point_dense_valid_mask = dense_data["point_dense_valid_mask"].astype(bool)
+            if "point_xyz" in dense_data and not np.allclose(dense_data["point_xyz"].astype(np.float32), point_xyz):
+                raise ValueError("dense point logits point_xyz does not match point feature point_xyz.")
+            if "class_names" in dense_data:
+                dense_class_names = [str(name) for name in dense_data["class_names"].tolist()]
+                if dense_class_names[: self.class_split.num_classes] != self.class_split.class_names:
+                    raise ValueError("dense point logits class_names order does not match lidarseg class_names.")
+            if point_teacher_logits.shape[0] != point_xyz.shape[0]:
+                raise ValueError("dense teacher logit count does not match point count.")
+            if point_dense_valid_mask.shape[0] != point_xyz.shape[0]:
+                raise ValueError("dense teacher valid mask count does not match point count.")
+            if point_teacher_logits.shape[1] < self.class_split.num_classes:
+                raise ValueError(
+                    "dense teacher logits must contain all lidarseg classes before base-class selection: "
+                    f"logits={point_teacher_logits.shape[1]}, expected>={self.class_split.num_classes}"
+                )
+
+            if self.dense_logit_space == "all_lidarseg":
+                # all_lidarseg 模式下 student 输出 32 个 lidarseg 类；
+                # CE 仍只监督 base 类，dense KL 可以保留 novel 类 teacher 信号。
+                dense_teacher_logits = point_teacher_logits[:, : self.class_split.num_classes].astype(np.float32)
+            else:
+                # base 模式只取 base classes，使 student logits 和 base CE train ids 对齐。
+                dense_teacher_logits = point_teacher_logits[:, self.class_split.base_label_ids].astype(np.float32)
+            dense_teacher_valid_mask = point_dense_valid_mask
+            if "point_dense_pred_scores" in dense_data:
+                dense_teacher_confidence = dense_data["point_dense_pred_scores"].astype(np.float32)
+            else:
+                shifted = point_teacher_logits - np.max(point_teacher_logits, axis=1, keepdims=True)
+                probs = np.exp(shifted) / np.maximum(np.exp(shifted).sum(axis=1, keepdims=True), 1e-6)
+                dense_teacher_confidence = probs.max(axis=1).astype(np.float32)
+            dense_teacher_confidence = np.nan_to_num(dense_teacher_confidence, nan=0.0, posinf=0.0, neginf=0.0)
+            dense_teacher_confidence = np.clip(dense_teacher_confidence, 0.0, 1.0).astype(np.float32)
+
         train_labels = map_labels_for_base_ce(raw_labels, self.class_split, ignore_index=self.ignore_index)
+        all_class_train_labels = np.full(raw_labels.shape, self.ignore_index, dtype=np.int64)
+        base_raw_mask = np.isin(raw_labels, self.class_split.base_label_ids)
+        all_class_train_labels[base_raw_mask] = raw_labels[base_raw_mask].astype(np.int64)
 
         selected = subsample_indices(point_xyz.shape[0], self.max_points, self.seed + sample_idx)
         return {
@@ -146,11 +228,16 @@ class PrecomputedPointFeatureDataset:
             "teacher_features": teacher_features[selected],
             "teacher_valid_mask": teacher_valid_mask[selected],
             "reliability_weight": reliability_weight[selected],
+            "dense_teacher_logits": dense_teacher_logits[selected],
+            "dense_teacher_valid_mask": dense_teacher_valid_mask[selected],
+            "dense_teacher_confidence": dense_teacher_confidence[selected],
             "raw_labels": raw_labels[selected].astype(np.int64),
             "train_labels": train_labels[selected].astype(np.int64),
+            "all_class_train_labels": all_class_train_labels[selected].astype(np.int64),
             "num_points_before_subsample": int(point_xyz.shape[0]),
             "point_feature_path": str(point_feature_path),
             "reliability_path": str(reliability_path),
+            "dense_point_path": str(dense_point_path) if dense_point_path is not None else "",
         }
 
 
@@ -175,7 +262,11 @@ def collate_point_feature_samples(samples: list[dict[str, Any]]) -> dict[str, An
         "teacher_features": cat_array("teacher_features").astype(np.float32),
         "teacher_valid_mask": cat_array("teacher_valid_mask").astype(bool),
         "reliability_weight": cat_array("reliability_weight").astype(np.float32),
+        "dense_teacher_logits": cat_array("dense_teacher_logits").astype(np.float32),
+        "dense_teacher_valid_mask": cat_array("dense_teacher_valid_mask").astype(bool),
+        "dense_teacher_confidence": cat_array("dense_teacher_confidence").astype(np.float32),
         "raw_labels": cat_array("raw_labels").astype(np.int64),
         "train_labels": cat_array("train_labels").astype(np.int64),
+        "all_class_train_labels": cat_array("all_class_train_labels").astype(np.int64),
         "num_points_before_subsample": [int(sample["num_points_before_subsample"]) for sample in samples],
     }

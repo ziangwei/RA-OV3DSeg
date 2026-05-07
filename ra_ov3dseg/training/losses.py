@@ -27,3 +27,25 @@ def cosine_distillation_loss(
     point_loss = 1.0 - torch.sum(student * teacher, dim=-1)
     valid_weights = weights[valid].float()
     return torch.sum(point_loss * valid_weights) / torch.clamp(valid_weights.sum(), min=eps)
+
+
+def dense_logit_distillation_loss(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    weights: torch.Tensor,
+    valid_mask: torch.Tensor,
+    temperature: float = 1.0,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Reliability-weighted KL distillation from dense 2D teacher logits to 3D point logits."""
+    valid = valid_mask & torch.isfinite(weights) & (weights > 0)
+    valid = valid & torch.isfinite(teacher_logits).all(dim=-1) & torch.isfinite(student_logits).all(dim=-1)
+    if not torch.any(valid):
+        return student_logits.sum() * 0.0
+
+    temp = max(float(temperature), eps)
+    student_log_probs = F.log_softmax(student_logits[valid] / temp, dim=-1)
+    teacher_probs = F.softmax(teacher_logits[valid] / temp, dim=-1)
+    point_kl = F.kl_div(student_log_probs, teacher_probs, reduction="none").sum(dim=-1) * (temp * temp)
+    valid_weights = weights[valid].float()
+    return torch.sum(point_kl * valid_weights) / torch.clamp(valid_weights.sum(), min=eps)

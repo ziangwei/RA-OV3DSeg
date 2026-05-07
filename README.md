@@ -517,3 +517,49 @@ bash scripts/server_cleanup_nuscenes_trainval.sh \
   --download_dir ${NUSCENES_ROOT}/downloads_trainval \
   --yes
 ```
+
+## MVP-v7 Dense-Logit Distillation
+
+V7 connects the V6 point-level dense teacher logits to the sparse 3D student training loop.
+Use `--teacher_mode hybrid` to train with base-class CE, legacy feature distillation, and dense-logit KL distillation together.
+
+Single-H100 mini smoke run:
+
+```bash
+python scripts/train_3d_segmentor.py \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --backbone sparse_unet_spconv \
+  --teacher_mode hybrid \
+  --student_output_space all_lidarseg \
+  --point_feature_dir outputs/point_features \
+  --reliability_dir outputs/reliability \
+  --dense_point_dir outputs/dense_point_logits \
+  --device cuda \
+  --epochs 5 \
+  --batch_size 1 \
+  --max_points 50000 \
+  --voxel_size 0.2 0.2 0.2 \
+  --point_cloud_range -54 -54 -5 54 54 3 \
+  --sparse_base_channels 32 \
+  --ce_weight 1.0 \
+  --distill_weight 1.0 \
+  --dense_logit_weight 1.0 \
+  --dense_temperature 1.0 \
+  --amp \
+  --output_dir outputs/training_v7
+```
+
+Verify V7:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v7 \
+  --training_v7_dir outputs/training_v7 \
+  --dense_teacher_dir outputs/dense_teacher_logits \
+  --dense_point_dir outputs/dense_point_logits \
+  --output_dir outputs/verification
+```

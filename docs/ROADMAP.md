@@ -79,6 +79,15 @@ camera image + class prompts
   -> point-level dense teacher logits
 ```
 
+V7 connects those dense point logits to sparse 3D training:
+
+```text
+point-level dense teacher logits
+  -> base-class logit selection
+  -> reliability/confidence-weighted KL distillation
+  -> sparse_unet_spconv student logits
+```
+
 `openseg_dense` remains the preferred final dense teacher direction once a stable
 checkpoint and dependency path are selected.
 

@@ -20,16 +20,28 @@ from ra_ov3dseg.models.segmentor_factory import (  # noqa: E402
     describe_backbone,
 )
 from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
-from ra_ov3dseg.training.losses import cosine_distillation_loss, supervised_ce_loss  # noqa: E402
+from ra_ov3dseg.training.losses import (  # noqa: E402
+    cosine_distillation_loss,
+    dense_logit_distillation_loss,
+    supervised_ce_loss,
+)
 from ra_ov3dseg.training.precomputed_dataset import (  # noqa: E402
     IGNORE_INDEX,
     PrecomputedPointFeatureDataset,
     collate_point_feature_samples,
+    find_missing_dense_point_files,
     find_missing_precomputed_files,
     label_hist,
 )
 from ra_ov3dseg.utils.io import ensure_dir, save_json  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
+
+
+FEATURE_DISTILL_MODE = "feature_distill"
+DENSE_LOGIT_DISTILL_MODE = "dense_logit_distill"
+HYBRID_TEACHER_MODE = "hybrid"
+TEACHER_MODES = (FEATURE_DISTILL_MODE, DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE)
+STUDENT_OUTPUT_SPACES = ("auto", "base", "all_lidarseg")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--all_samples", action="store_true", help="Use all samples from start_idx to dataset end.")
     parser.add_argument("--point_feature_dir", default="outputs/point_features", type=str)
     parser.add_argument("--reliability_dir", default="outputs/reliability", type=str)
+    parser.add_argument("--dense_point_dir", default="outputs/dense_point_logits", type=str)
+    parser.add_argument(
+        "--teacher_mode",
+        default=FEATURE_DISTILL_MODE,
+        choices=list(TEACHER_MODES),
+        help=(
+            "feature_distill uses point_features cosine loss; dense_logit_distill uses V6 dense point logits; "
+            "hybrid uses both."
+        ),
+    )
     parser.add_argument(
         "--skip_missing_precomputed",
         action="store_true",
@@ -77,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight_decay", default=1e-4, type=float)
     parser.add_argument("--ce_weight", default=1.0, type=float)
     parser.add_argument("--distill_weight", default=1.0, type=float)
+    parser.add_argument("--dense_logit_weight", default=1.0, type=float)
+    parser.add_argument("--dense_temperature", default=1.0, type=float)
+    parser.add_argument(
+        "--student_output_space",
+        default="auto",
+        choices=list(STUDENT_OUTPUT_SPACES),
+        help="auto uses all_lidarseg for dense/hybrid teacher modes and base for feature_distill.",
+    )
     parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision.")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--save_every", default=1, type=int, help="Save checkpoint every N epochs on rank 0.")
@@ -148,7 +178,17 @@ def numpy_batch_to_torch(batch: dict[str, Any], torch_module, device) -> dict[st
         "teacher_features": torch_module.from_numpy(batch["teacher_features"]).to(device, non_blocking=True),
         "teacher_valid_mask": torch_module.from_numpy(batch["teacher_valid_mask"]).bool().to(device, non_blocking=True),
         "reliability_weight": torch_module.from_numpy(batch["reliability_weight"]).float().to(device, non_blocking=True),
+        "dense_teacher_logits": torch_module.from_numpy(batch["dense_teacher_logits"]).float().to(device, non_blocking=True),
+        "dense_teacher_valid_mask": torch_module.from_numpy(batch["dense_teacher_valid_mask"])
+        .bool()
+        .to(device, non_blocking=True),
+        "dense_teacher_confidence": torch_module.from_numpy(batch["dense_teacher_confidence"])
+        .float()
+        .to(device, non_blocking=True),
         "train_labels": torch_module.from_numpy(batch["train_labels"]).long().to(device, non_blocking=True),
+        "all_class_train_labels": torch_module.from_numpy(batch["all_class_train_labels"])
+        .long()
+        .to(device, non_blocking=True),
         "raw_labels": batch["raw_labels"],
     }
 
@@ -167,9 +207,11 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
         "points",
         "base_supervised_points",
         "distill_points",
+        "dense_distill_points",
         "total_loss_sum",
         "ce_loss_sum",
         "distill_loss_sum",
+        "dense_logit_loss_sum",
         "grad_norm_sum",
     ]
     tensor = torch_module.tensor([float(stats[key]) for key in keys], dtype=torch_module.float64, device=device)
@@ -183,6 +225,7 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
     reduced["avg_total_loss"] = reduced["total_loss_sum"] / steps
     reduced["avg_ce_loss"] = reduced["ce_loss_sum"] / steps
     reduced["avg_distill_loss"] = reduced["distill_loss_sum"] / steps
+    reduced["avg_dense_logit_loss"] = reduced["dense_logit_loss_sum"] / steps
     reduced["avg_grad_norm"] = reduced["grad_norm_sum"] / steps
     return reduced
 
@@ -231,6 +274,8 @@ def main() -> int:
         raise ValueError("--epochs must be positive.")
     if args.batch_size <= 0:
         raise ValueError("--batch_size must be positive.")
+    if args.dense_temperature <= 0:
+        raise ValueError("--dense_temperature must be positive.")
 
     backbone_spec = describe_backbone(args.backbone)
     distributed_state = setup_distributed(torch, args.ddp_backend)
@@ -279,7 +324,28 @@ def main() -> int:
                 "Either precompute that sample range first, lower --max_samples, or pass "
                 "--skip_missing_precomputed for a smoke test."
             )
+    load_dense_logits = args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
+    if load_dense_logits:
+        missing_dense = find_missing_dense_point_files(
+            sample_indices=sample_indices,
+            dense_point_dir=args.dense_point_dir,
+        )
+        if missing_dense:
+            first_missing = missing_dense[0]
+            raise FileNotFoundError(
+                "Dense-logit distillation requires V6 dense point logits for every requested sample. "
+                f"Missing {len(missing_dense)} sample(s); first missing sample_idx="
+                f"{first_missing['sample_idx']}:\n{first_missing['missing_files']}\n"
+                "Precompute V6 first or lower --max_samples/--sample_idx."
+            )
     class_split = build_class_split(args.class_names_path, args.split_config)
+    student_output_space = args.student_output_space
+    if student_output_space == "auto":
+        student_output_space = "all_lidarseg" if load_dense_logits else "base"
+    num_output_classes = (
+        class_split.num_classes if student_output_space == "all_lidarseg" else class_split.num_train_classes
+    )
+    ce_label_key = "all_class_train_labels" if student_output_space == "all_lidarseg" else "train_labels"
     max_points = None if args.max_points <= 0 else args.max_points
     train_dataset = PrecomputedPointFeatureDataset(
         nuscenes_dataset=dataset,
@@ -287,6 +353,9 @@ def main() -> int:
         point_feature_dir=args.point_feature_dir,
         reliability_dir=args.reliability_dir,
         class_split=class_split,
+        dense_point_dir=args.dense_point_dir,
+        load_dense_logits=load_dense_logits,
+        dense_logit_space=student_output_space,
         max_points=max_points,
         seed=args.seed,
         ignore_index=IGNORE_INDEX,
@@ -323,7 +392,7 @@ def main() -> int:
         input_dim=3,
         hidden_dim=args.hidden_dim,
         feature_dim=feature_dim,
-        num_classes=class_split.num_train_classes,
+        num_classes=num_output_classes,
         voxel_size=tuple(args.voxel_size),
         point_cloud_range=tuple(args.point_cloud_range),
         sparse_base_channels=args.sparse_base_channels,
@@ -339,12 +408,19 @@ def main() -> int:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     amp_enabled = bool(args.amp and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    use_feature_distill = args.teacher_mode in {FEATURE_DISTILL_MODE, HYBRID_TEACHER_MODE}
+    use_dense_logit_distill = args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
 
     if main_process:
         logger.info(
-            "train start | backbone=%s | role=%s | version=%s | samples=%d | device=%s | ddp=%s | world_size=%d",
+            (
+                "train start | backbone=%s | role=%s | teacher_mode=%s | output_space=%s | "
+                "version=%s | samples=%d | device=%s | ddp=%s | world_size=%d"
+            ),
             backbone_spec.backbone,
             backbone_spec.role,
+            args.teacher_mode,
+            student_output_space,
             args.version,
             len(sample_indices),
             device,
@@ -364,9 +440,11 @@ def main() -> int:
             "points": 0.0,
             "base_supervised_points": 0.0,
             "distill_points": 0.0,
+            "dense_distill_points": 0.0,
             "total_loss_sum": 0.0,
             "ce_loss_sum": 0.0,
             "distill_loss_sum": 0.0,
+            "dense_logit_loss_sum": 0.0,
             "grad_norm_sum": 0.0,
         }
 
@@ -378,18 +456,38 @@ def main() -> int:
                 outputs = model(torch_batch)
                 model_valid_mask = outputs.get(
                     "model_valid_mask",
-                    torch.ones_like(torch_batch["train_labels"], dtype=torch.bool),
+                    torch.ones_like(torch_batch[ce_label_key], dtype=torch.bool),
                 )
-                effective_train_labels = torch_batch["train_labels"].clone()
+                effective_train_labels = torch_batch[ce_label_key].clone()
                 effective_train_labels[~model_valid_mask] = IGNORE_INDEX
                 ce_loss = supervised_ce_loss(outputs["logits"], effective_train_labels, ignore_index=IGNORE_INDEX)
-                distill_loss = cosine_distillation_loss(
-                    student_features=outputs["point_features"],
-                    teacher_features=torch_batch["teacher_features"],
-                    weights=torch_batch["reliability_weight"],
-                    valid_mask=torch_batch["teacher_valid_mask"] & model_valid_mask,
+                if use_feature_distill:
+                    distill_loss = cosine_distillation_loss(
+                        student_features=outputs["point_features"],
+                        teacher_features=torch_batch["teacher_features"],
+                        weights=torch_batch["reliability_weight"],
+                        valid_mask=torch_batch["teacher_valid_mask"] & model_valid_mask,
+                    )
+                else:
+                    distill_loss = outputs["point_features"].sum() * 0.0
+
+                if use_dense_logit_distill:
+                    dense_weights = torch_batch["reliability_weight"] * torch_batch["dense_teacher_confidence"]
+                    dense_logit_loss = dense_logit_distillation_loss(
+                        student_logits=outputs["logits"],
+                        teacher_logits=torch_batch["dense_teacher_logits"],
+                        weights=dense_weights,
+                        valid_mask=torch_batch["dense_teacher_valid_mask"] & model_valid_mask,
+                        temperature=args.dense_temperature,
+                    )
+                else:
+                    dense_logit_loss = outputs["logits"].sum() * 0.0
+
+                total_loss = (
+                    args.ce_weight * ce_loss
+                    + args.distill_weight * distill_loss
+                    + args.dense_logit_weight * dense_logit_loss
                 )
-                total_loss = args.ce_weight * ce_loss + args.distill_weight * distill_loss
 
             scaler.scale(total_loss).backward()
             scaler.unscale_(optimizer)
@@ -399,10 +497,10 @@ def main() -> int:
 
             output_valid_mask = outputs.get(
                 "model_valid_mask",
-                torch.ones_like(torch_batch["train_labels"], dtype=torch.bool),
+                torch.ones_like(torch_batch[ce_label_key], dtype=torch.bool),
             )
             base_points = int(
-                torch.sum((torch_batch["train_labels"] != IGNORE_INDEX) & output_valid_mask).detach().cpu().item()
+                torch.sum((torch_batch[ce_label_key] != IGNORE_INDEX) & output_valid_mask).detach().cpu().item()
             )
             distill_points = int(
                 torch.sum(
@@ -415,15 +513,33 @@ def main() -> int:
                 .cpu()
                 .item()
             )
+            if not use_feature_distill:
+                distill_points = 0
+            dense_distill_points = int(
+                torch.sum(
+                    torch_batch["dense_teacher_valid_mask"]
+                    & output_valid_mask
+                    & torch.isfinite(torch_batch["reliability_weight"])
+                    & torch.isfinite(torch_batch["dense_teacher_confidence"])
+                    & ((torch_batch["reliability_weight"] * torch_batch["dense_teacher_confidence"]) > 0.0)
+                )
+                .detach()
+                .cpu()
+                .item()
+            )
+            if not use_dense_logit_distill:
+                dense_distill_points = 0
             num_points = int(torch_batch["point_xyz"].shape[0])
 
             local_stats["steps"] += 1.0
             local_stats["points"] += float(num_points)
             local_stats["base_supervised_points"] += float(base_points)
             local_stats["distill_points"] += float(distill_points)
+            local_stats["dense_distill_points"] += float(dense_distill_points)
             local_stats["total_loss_sum"] += float(total_loss.detach().cpu().item())
             local_stats["ce_loss_sum"] += float(ce_loss.detach().cpu().item())
             local_stats["distill_loss_sum"] += float(distill_loss.detach().cpu().item())
+            local_stats["dense_logit_loss_sum"] += float(dense_logit_loss.detach().cpu().item())
             local_stats["grad_norm_sum"] += float(grad_norm)
 
         epoch_stats = reduce_epoch_stats(
@@ -438,23 +554,30 @@ def main() -> int:
             "points": int(epoch_stats["points"]),
             "base_supervised_points": int(epoch_stats["base_supervised_points"]),
             "distill_points": int(epoch_stats["distill_points"]),
+            "dense_distill_points": int(epoch_stats["dense_distill_points"]),
             "avg_total_loss": float(epoch_stats["avg_total_loss"]),
             "avg_ce_loss": float(epoch_stats["avg_ce_loss"]),
             "avg_distill_loss": float(epoch_stats["avg_distill_loss"]),
+            "avg_dense_logit_loss": float(epoch_stats["avg_dense_logit_loss"]),
             "avg_grad_norm": float(epoch_stats["avg_grad_norm"]),
         }
         epoch_logs.append(epoch_log)
 
         if main_process:
             logger.info(
-                "epoch=%d | loss=%.6f | ce=%.6f | distill=%.6f | points=%d | base_points=%d | distill_points=%d",
+                (
+                    "epoch=%d | loss=%.6f | ce=%.6f | feature_distill=%.6f | dense_logit=%.6f | "
+                    "points=%d | base_points=%d | feature_points=%d | dense_points=%d"
+                ),
                 epoch,
                 epoch_log["avg_total_loss"],
                 epoch_log["avg_ce_loss"],
                 epoch_log["avg_distill_loss"],
+                epoch_log["avg_dense_logit_loss"],
                 epoch_log["points"],
                 epoch_log["base_supervised_points"],
                 epoch_log["distill_points"],
+                epoch_log["dense_distill_points"],
             )
             if args.save_every > 0 and (epoch % args.save_every == 0 or epoch == args.epochs):
                 save_checkpoint(
@@ -493,6 +616,8 @@ def main() -> int:
             "device": str(device),
             "distributed": distributed_state,
             "backbone": backbone_spec.__dict__,
+            "teacher_mode": args.teacher_mode,
+            "student_output_space": student_output_space,
             "num_samples": len(sample_indices),
             "sample_indices": sample_indices,
             "epochs_completed": args.epochs,
@@ -502,6 +627,10 @@ def main() -> int:
             "point_cloud_range": list(args.point_cloud_range),
             "sparse_base_channels": args.sparse_base_channels,
             "feature_dim": feature_dim,
+            "dense_point_dir": str(Path(args.dense_point_dir).expanduser().resolve()),
+            "load_dense_logits": load_dense_logits,
+            "dense_temperature": args.dense_temperature,
+            "num_output_classes": num_output_classes,
             "num_base_train_classes": class_split.num_train_classes,
             "base_classes": class_split.base_class_names,
             "novel_classes": class_split.novel_class_names,
@@ -510,6 +639,7 @@ def main() -> int:
             "loss_weights": {
                 "ce_weight": args.ce_weight,
                 "distill_weight": args.distill_weight,
+                "dense_logit_weight": args.dense_logit_weight,
             },
             "epoch_logs": epoch_logs,
             "latest_checkpoint": str(latest_path),

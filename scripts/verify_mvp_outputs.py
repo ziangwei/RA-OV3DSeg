@@ -25,11 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
-            "v6 dense teacher logits."
+            "v6 dense teacher logits, v7 dense-logit distillation training."
         ),
     )
     parser.add_argument(
@@ -73,6 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=str,
         help="Optional V5 training output directory. Defaults to outputs_dir/training_v5.",
+    )
+    parser.add_argument(
+        "--training_v7_dir",
+        default=None,
+        type=str,
+        help="Optional V7 training output directory. Defaults to outputs_dir/training_v7.",
     )
     parser.add_argument(
         "--dense_teacher_dir",
@@ -555,6 +561,83 @@ def verify_training_v5(outputs_dir: Path, args, checks: list[dict[str, Any]]) ->
     )
 
 
+def verify_training_v7(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    training_dir = Path(args.training_v7_dir) if args.training_v7_dir is not None else outputs_dir / "training_v7"
+    summary_path = training_dir / "train_summary.json"
+
+    if not check_file(summary_path, checks, "training_v7_summary_json"):
+        return
+
+    summary = load_json(summary_path)
+    latest_path = Path(summary.get("latest_checkpoint", str(training_dir / "sparse_unet_spconv_latest.pt")))
+    check_file(latest_path, checks, "training_v7_latest_checkpoint")
+
+    backbone = summary.get("backbone", {})
+    backbone_name = backbone.get("backbone", "")
+    teacher_mode = str(summary.get("teacher_mode", ""))
+    student_output_space = str(summary.get("student_output_space", ""))
+    num_output_classes = int(summary.get("num_output_classes", 0))
+    epoch_logs = summary.get("epoch_logs", [])
+    final_log = epoch_logs[-1] if epoch_logs else {}
+    avg_total_loss = float(final_log.get("avg_total_loss", float("nan")))
+    avg_ce_loss = float(final_log.get("avg_ce_loss", float("nan")))
+    avg_dense_loss = float(final_log.get("avg_dense_logit_loss", float("nan")))
+    avg_grad_norm = float(final_log.get("avg_grad_norm", float("nan")))
+    epochs_completed = int(summary.get("epochs_completed", 0))
+    points = int(final_log.get("points", 0))
+    base_points = int(final_log.get("base_supervised_points", 0))
+    dense_points = int(final_log.get("dense_distill_points", 0))
+
+    add_check(
+        checks,
+        "training_v7_backbone",
+        backbone_name == "sparse_unet_spconv",
+        f"backbone={backbone_name}",
+    )
+    add_check(
+        checks,
+        "training_v7_teacher_mode",
+        teacher_mode in {"dense_logit_distill", "hybrid"},
+        f"teacher_mode={teacher_mode}",
+    )
+    add_check(
+        checks,
+        "training_v7_output_space",
+        student_output_space == "all_lidarseg" and num_output_classes == 32,
+        f"student_output_space={student_output_space}, num_output_classes={num_output_classes}",
+    )
+    add_check(
+        checks,
+        "training_v7_status",
+        summary.get("status") == "pass" and epochs_completed > 0,
+        f"status={summary.get('status')}, epochs={epochs_completed}",
+    )
+    add_check(
+        checks,
+        "training_v7_losses",
+        (
+            np.isfinite(avg_total_loss)
+            and np.isfinite(avg_ce_loss)
+            and np.isfinite(avg_dense_loss)
+            and avg_total_loss >= 0.0
+            and avg_dense_loss >= 0.0
+        ),
+        f"ce={avg_ce_loss:.6f}, dense_logit={avg_dense_loss:.6f}, total={avg_total_loss:.6f}",
+    )
+    add_check(
+        checks,
+        "training_v7_grad",
+        np.isfinite(avg_grad_norm) and avg_grad_norm > 0.0,
+        f"avg_grad_norm={avg_grad_norm:.6f}",
+    )
+    add_check(
+        checks,
+        "training_v7_supervision",
+        points > 0 and base_points > 0 and dense_points > 0,
+        f"points={points}, base_supervised_points={base_points}, dense_distill_points={dense_points}",
+    )
+
+
 def verify_dense_teacher_v6(outputs_dir: Path, sample_idx: int, args, checks: list[dict[str, Any]]) -> None:
     prefix = f"sample_{sample_idx:04d}"
     dense_teacher_dir = Path(args.dense_teacher_dir) if args.dense_teacher_dir is not None else outputs_dir / "dense_teacher_logits"
@@ -654,11 +737,11 @@ def main() -> int:
 
     verify_projection(outputs_dir, args.sample_idx, args, checks)
     verify_overlays(outputs_dir, args.sample_idx, checks)
-    if args.stage in {"v1", "v2", "v3", "v4", "v5"}:
+    if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
         verify_image_features(outputs_dir, args.sample_idx, args, checks)
         verify_point_features(outputs_dir, args.sample_idx, args, checks)
         verify_zero_shot(outputs_dir, args.sample_idx, args, checks)
-    if args.stage in {"v2", "v3", "v4", "v5"}:
+    if args.stage in {"v2", "v3", "v4", "v5", "v7"}:
         verify_reliability(outputs_dir, args.sample_idx, checks)
     if args.stage == "v3":
         verify_training_dryrun(outputs_dir, args.sample_idx, checks)
@@ -666,8 +749,10 @@ def main() -> int:
         verify_training_v4(outputs_dir, args, checks)
     if args.stage == "v5":
         verify_training_v5(outputs_dir, args, checks)
-    if args.stage == "v6":
+    if args.stage in {"v6", "v7"}:
         verify_dense_teacher_v6(outputs_dir, args.sample_idx, args, checks)
+    if args.stage == "v7":
+        verify_training_v7(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]
