@@ -603,3 +603,47 @@ python scripts/verify_mvp_outputs.py \
   --evaluation_dir outputs/evaluation3d \
   --output_dir outputs/verification
 ```
+
+## MVP-v9 Mini Experiment Protocol
+
+V9 runs a small multi-sample protocol on `v1.0-mini`: shared precompute cache, train on one sample range, predict/evaluate on another range, and write one experiment summary.
+
+```bash
+python scripts/run_mini_experiment.py \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --version v1.0-mini \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/mini_v9 \
+  --train_start_idx 0 \
+  --train_max_samples 32 \
+  --eval_start_idx 32 \
+  --eval_max_samples 32 \
+  --cache_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache \
+  --precompute_device cuda \
+  --train_device cuda \
+  --teacher_mode hybrid \
+  --student_output_space all_lidarseg \
+  --epochs 10 \
+  --batch_size 1 \
+  --num_workers 4 \
+  --max_points 50000 \
+  --sparse_base_channels 32 \
+  --amp \
+  --skip_existing
+```
+
+Verify V9:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --outputs_dir outputs \
+  --stage v9 \
+  --experiment_dir outputs/experiments/mini_v9 \
+  --output_dir outputs/verification
+```
+
+Main result file:
+
+```text
+outputs/experiments/mini_v9/summary.json
+```

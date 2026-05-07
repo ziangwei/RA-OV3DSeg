@@ -97,6 +97,15 @@ trained sparse_unet_spconv checkpoint
   -> base / novel / all mIoU against lidarseg labels
 ```
 
+V9 turns the single-sample loop into a small mini protocol:
+
+```text
+shared precompute cache
+  -> train split range
+  -> eval split range
+  -> aggregate mini mIoU summary
+```
+
 `openseg_dense` remains the preferred final dense teacher direction once a stable
 checkpoint and dependency path are selected.
 

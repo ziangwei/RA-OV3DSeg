@@ -25,11 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
-            "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval."
+            "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
+            "v9 mini experiment protocol."
         ),
     )
     parser.add_argument(
@@ -103,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=str,
         help="Optional V8 evaluation directory. Defaults to outputs_dir/evaluation3d.",
+    )
+    parser.add_argument(
+        "--experiment_dir",
+        default=None,
+        type=str,
+        help="Optional V9 experiment directory. Defaults to outputs_dir/experiments/mini_v9.",
     )
     return parser
 
@@ -863,6 +870,71 @@ def verify_prediction_eval_v8(outputs_dir: Path, sample_idx: int, args, checks: 
         )
 
 
+def verify_mini_experiment_v9(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = Path(args.experiment_dir) if args.experiment_dir is not None else outputs_dir / "experiments" / "mini_v9"
+    summary_path = experiment_dir / "summary.json"
+    if not check_file(summary_path, checks, "v9_experiment_summary_json"):
+        return
+
+    summary = load_json(summary_path)
+    status = str(summary.get("status", ""))
+    commands = summary.get("commands", [])
+    failed_commands = [item for item in commands if item.get("status") == "failed"]
+    done_or_dry = [item for item in commands if item.get("status") in {"done", "dry_run"}]
+    add_check(
+        checks,
+        "v9_experiment_status",
+        status in {"pass", "dry_run"} and not failed_commands,
+        f"status={status}, commands={len(commands)}, failed={len(failed_commands)}",
+    )
+    add_check(
+        checks,
+        "v9_experiment_commands",
+        len(commands) > 0 and len(done_or_dry) == len(commands),
+        f"commands={len(commands)}, completed_or_dry={len(done_or_dry)}",
+    )
+
+    artifact_dirs = summary.get("artifact_dirs", {})
+    training = summary.get("training", {})
+    latest_checkpoint = Path(str(training.get("latest_checkpoint", ""))) if training.get("latest_checkpoint") else None
+    if status == "pass":
+        if latest_checkpoint is not None:
+            check_file(latest_checkpoint, checks, "v9_latest_checkpoint")
+        add_check(
+            checks,
+            "v9_training_summary",
+            training.get("status") == "pass" and int(training.get("epochs_completed", 0)) > 0,
+            f"training_status={training.get('status')}, epochs={training.get('epochs_completed')}",
+        )
+
+    evaluation = summary.get("evaluation", {})
+    aggregate_metrics = evaluation.get("aggregate_metrics", {})
+    metric_keys = {"all_miou", "base_miou", "novel_miou", "prediction_coverage"}
+    add_check(
+        checks,
+        "v9_aggregate_metrics",
+        status == "dry_run" or metric_keys.issubset(set(aggregate_metrics.keys())),
+        f"metrics_keys={sorted(aggregate_metrics.keys())}",
+        aggregate_metrics,
+    )
+    if status == "pass":
+        eval_source = evaluation.get("source", "")
+        add_check(
+            checks,
+            "v9_evaluation_source",
+            bool(eval_source) and Path(eval_source).exists(),
+            f"evaluation_source={eval_source}",
+        )
+        for key in ["experiment", "training", "predictions", "evaluation"]:
+            path = Path(str(artifact_dirs.get(key, "")))
+            add_check(
+                checks,
+                f"v9_artifact_dir_{key}",
+                bool(str(path)) and path.exists(),
+                f"path={path}",
+            )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -870,8 +942,9 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    verify_projection(outputs_dir, args.sample_idx, args, checks)
-    verify_overlays(outputs_dir, args.sample_idx, checks)
+    if args.stage != "v9":
+        verify_projection(outputs_dir, args.sample_idx, args, checks)
+        verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
         verify_image_features(outputs_dir, args.sample_idx, args, checks)
         verify_point_features(outputs_dir, args.sample_idx, args, checks)
@@ -890,6 +963,8 @@ def main() -> int:
         verify_training_v7(outputs_dir, args, checks)
     if args.stage == "v8":
         verify_prediction_eval_v8(outputs_dir, args.sample_idx, args, checks)
+    if args.stage == "v9":
+        verify_mini_experiment_v9(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]
