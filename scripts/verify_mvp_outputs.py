@@ -25,11 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
-            "v6 dense teacher logits, v7 dense-logit distillation training."
+            "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval."
         ),
     )
     parser.add_argument(
@@ -91,6 +91,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=str,
         help="Optional V6 dense point logit directory. Defaults to outputs_dir/dense_point_logits.",
+    )
+    parser.add_argument(
+        "--prediction_dir",
+        default=None,
+        type=str,
+        help="Optional V8 prediction directory. Defaults to outputs_dir/predictions3d.",
+    )
+    parser.add_argument(
+        "--evaluation_dir",
+        default=None,
+        type=str,
+        help="Optional V8 evaluation directory. Defaults to outputs_dir/evaluation3d.",
     )
     return parser
 
@@ -728,6 +740,129 @@ def verify_dense_teacher_v6(outputs_dir: Path, sample_idx: int, args, checks: li
     )
 
 
+def verify_prediction_eval_v8(outputs_dir: Path, sample_idx: int, args, checks: list[dict[str, Any]]) -> None:
+    prefix = f"sample_{sample_idx:04d}"
+    prediction_dir = Path(args.prediction_dir) if args.prediction_dir is not None else outputs_dir / "predictions3d"
+    evaluation_dir = Path(args.evaluation_dir) if args.evaluation_dir is not None else outputs_dir / "evaluation3d"
+
+    pred_npz = prediction_dir / f"{prefix}_3d_predictions.npz"
+    pred_summary = prediction_dir / f"{prefix}_3d_prediction_summary.json"
+    pred_ply = prediction_dir / f"{prefix}_3d_predictions.ply"
+    pred_bev = prediction_dir / f"{prefix}_3d_predictions_bev.png"
+    eval_npz = evaluation_dir / f"{prefix}_3d_eval.npz"
+    eval_summary = evaluation_dir / f"{prefix}_3d_eval_summary.json"
+
+    if not check_file(pred_npz, checks, "prediction_npz"):
+        return
+    check_file(pred_summary, checks, "prediction_summary_json")
+    check_file(pred_ply, checks, "prediction_points_ply")
+    check_file(pred_bev, checks, "prediction_bev_png")
+
+    pred = load_npz(pred_npz)
+    pred_required = [
+        "point_xyz",
+        "model_valid_mask",
+        "pred_output_indices",
+        "pred_label_indices",
+        "pred_scores",
+        "class_names",
+        "checkpoint_path",
+        "student_output_space",
+    ]
+    missing_pred = [key for key in pred_required if key not in pred]
+    add_check(checks, "prediction_required_keys", not missing_pred, f"missing_keys={missing_pred}", missing_pred)
+    if missing_pred:
+        return
+
+    point_xyz = pred["point_xyz"]
+    pred_labels = pred["pred_label_indices"]
+    pred_scores = pred["pred_scores"]
+    model_valid = pred["model_valid_mask"].astype(bool)
+    class_names = pred["class_names"]
+    valid_pred = model_valid & (pred_labels >= 0)
+    output_space = str(pred["student_output_space"].item())
+
+    add_check(
+        checks,
+        "prediction_shapes",
+        (
+            point_xyz.ndim == 2
+            and point_xyz.shape[1] == 3
+            and pred_labels.shape[0] == point_xyz.shape[0]
+            and pred_scores.shape[0] == point_xyz.shape[0]
+            and model_valid.shape[0] == point_xyz.shape[0]
+        ),
+        (
+            f"point_xyz={point_xyz.shape}, pred_label_indices={pred_labels.shape}, "
+            f"pred_scores={pred_scores.shape}, model_valid_mask={model_valid.shape}"
+        ),
+    )
+    add_check(
+        checks,
+        "prediction_output_space",
+        output_space in {"all_lidarseg", "base"},
+        f"student_output_space={output_space}",
+    )
+    add_check(
+        checks,
+        "prediction_valid_ratio",
+        int(valid_pred.sum()) > 0,
+        f"valid_predictions={int(valid_pred.sum())}, total={int(point_xyz.shape[0])}, classes={int(class_names.shape[0])}",
+    )
+
+    if not check_file(eval_npz, checks, "evaluation_npz"):
+        return
+    check_file(eval_summary, checks, "evaluation_summary_json")
+    eval_data = load_npz(eval_npz)
+    eval_required = [
+        "class_names",
+        "intersections",
+        "unions",
+        "gt_counts",
+        "pred_counts",
+        "ious",
+        "confusion_matrix",
+        "base_label_ids",
+        "novel_label_ids",
+        "ignore_label_ids",
+    ]
+    missing_eval = [key for key in eval_required if key not in eval_data]
+    add_check(checks, "evaluation_required_keys", not missing_eval, f"missing_keys={missing_eval}", missing_eval)
+    if missing_eval:
+        return
+
+    ious = eval_data["ious"].astype(np.float32)
+    unions = eval_data["unions"].astype(np.int64)
+    confusion = eval_data["confusion_matrix"]
+    present_iou = ious[np.isfinite(ious) & (unions > 0)]
+    add_check(
+        checks,
+        "evaluation_shapes",
+        (
+            ious.shape[0] == class_names.shape[0]
+            and unions.shape[0] == class_names.shape[0]
+            and confusion.shape == (class_names.shape[0], class_names.shape[0])
+        ),
+        f"ious={ious.shape}, unions={unions.shape}, confusion_matrix={confusion.shape}",
+    )
+    add_check(
+        checks,
+        "evaluation_iou_values",
+        present_iou.shape[0] > 0 and bool(np.all((present_iou >= 0.0) & (present_iou <= 1.0))),
+        f"present_iou_classes={int(present_iou.shape[0])}",
+    )
+    if eval_summary.exists():
+        summary = load_json(eval_summary)
+        metrics = summary.get("metrics", {})
+        add_check(
+            checks,
+            "evaluation_metrics_json",
+            "all_miou" in metrics and "base_miou" in metrics and "novel_miou" in metrics,
+            f"metrics_keys={sorted(metrics.keys())}",
+            metrics,
+        )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -753,6 +888,8 @@ def main() -> int:
         verify_dense_teacher_v6(outputs_dir, args.sample_idx, args, checks)
     if args.stage == "v7":
         verify_training_v7(outputs_dir, args, checks)
+    if args.stage == "v8":
+        verify_prediction_eval_v8(outputs_dir, args.sample_idx, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

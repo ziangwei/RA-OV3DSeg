@@ -563,3 +563,43 @@ python scripts/verify_mvp_outputs.py \
   --dense_point_dir outputs/dense_point_logits \
   --output_dir outputs/verification
 ```
+
+## MVP-v8 3D Prediction And Lidarseg Eval
+
+V8 loads a trained `train_3d_segmentor.py` checkpoint, predicts point-level lidarseg labels, then evaluates against nuScenes lidarseg labels.
+
+Predict one mini sample:
+
+```bash
+python scripts/predict_3d_segmentor.py \
+  --checkpoint outputs/training_v7/sparse_unet_spconv_latest.pt \
+  --sample_idx 0 \
+  --point_feature_dir outputs/point_features \
+  --device cuda \
+  --output_dir outputs/predictions3d
+```
+
+Evaluate one mini sample:
+
+```bash
+python scripts/eval_lidarseg.py \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --version v1.0-mini \
+  --sample_idx 0 \
+  --prediction_dir outputs/predictions3d \
+  --class_names_path configs/nuscenes_lidarseg_class_names.txt \
+  --split_config configs/base_novel_split.yaml \
+  --output_dir outputs/evaluation3d
+```
+
+Verify V8:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --sample_idx 0 \
+  --outputs_dir outputs \
+  --stage v8 \
+  --prediction_dir outputs/predictions3d \
+  --evaluation_dir outputs/evaluation3d \
+  --output_dir outputs/verification
+```

@@ -88,6 +88,15 @@ point-level dense teacher logits
   -> sparse_unet_spconv student logits
 ```
 
+V8 closes the mini evaluation loop:
+
+```text
+trained sparse_unet_spconv checkpoint
+  -> point-level lidarseg predictions
+  -> BEV/PLY visualization
+  -> base / novel / all mIoU against lidarseg labels
+```
+
 `openseg_dense` remains the preferred final dense teacher direction once a stable
 checkpoint and dependency path are selected.
 
