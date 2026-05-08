@@ -518,6 +518,40 @@ bash scripts/server_cleanup_nuscenes_trainval.sh \
   --yes
 ```
 
+## Compact Trainval For RA-OV3DSeg
+
+For the current RA-OV3DSeg pipeline, 200GB free space is not enough for full nuScenes trainval with all sweeps/radar kept.
+Use the compact script below first: it keeps `samples/CAM_*`, `samples/LIDAR_TOP`, `maps`, `v1.0-trainval`, and `lidarseg/v1.0-trainval`, while deleting `sweeps/`, radar folders, and archives by default.
+
+Recommended compact trainval command for the LRZ server:
+
+```bash
+bash scripts/server_prepare_nuscenes_trainval_compact.sh \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --download_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes/downloads_trainval \
+  --first_part 1 \
+  --num_parts 10 \
+  --min_free_gb 35
+```
+
+If direct downloads fail, manually download the required archives from the nuScenes download page into the same `downloads_trainval` directory, then rerun:
+
+```bash
+bash scripts/server_prepare_nuscenes_trainval_compact.sh \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --download_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes/downloads_trainval \
+  --skip_download \
+  --first_part 1 \
+  --num_parts 10
+```
+
+Approximate storage planning:
+
+- Full trainval all sensors, extracted only: usually >400GB.
+- Full trainval all sensors while keeping archives: usually >700GB.
+- Compact RA-OV3DSeg trainval: roughly 80-130GB final, with streaming peak usually under 200GB.
+- If space gets tight, start with `--num_parts 3` or `--num_parts 5`, run V9 on that subset, then extend later.
+
 ## MVP-v7 Dense-Logit Distillation
 
 V7 connects the V6 point-level dense teacher logits to the sparse 3D student training loop.
