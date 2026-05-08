@@ -13,6 +13,7 @@ KEEP_SWEEPS=0
 KEEP_RADAR=0
 SKIP_DOWNLOAD=0
 MIN_FREE_GB=35
+TAR_EXCLUDES=()
 
 usage() {
   cat <<'EOF'
@@ -253,6 +254,18 @@ download_one() {
   exit 1
 }
 
+build_tar_excludes() {
+  TAR_EXCLUDES=()
+  if [[ "${KEEP_SWEEPS}" != "1" ]]; then
+    TAR_EXCLUDES+=("--exclude=sweeps")
+    TAR_EXCLUDES+=("--exclude=sweeps/*")
+  fi
+  if [[ "${KEEP_RADAR}" != "1" ]]; then
+    TAR_EXCLUDES+=("--exclude=samples/RADAR_*")
+    TAR_EXCLUDES+=("--exclude=sweeps/RADAR_*")
+  fi
+}
+
 remove_unneeded_for_ra_ov3dseg() {
   if [[ "${KEEP_SWEEPS}" != "1" && -d "${DATAROOT}/sweeps" ]]; then
     echo "[INFO] removing sweeps/ because current pipeline uses only keyframe samples"
@@ -279,7 +292,11 @@ extract_one() {
 
   download_one "${file}"
   echo "[INFO] extracting ${archive} -> ${DATAROOT}"
-  tar -xf "${archive}" -C "${DATAROOT}"
+  build_tar_excludes
+  if [[ "${#TAR_EXCLUDES[@]}" -gt 0 ]]; then
+    echo "[INFO] tar excludes: ${TAR_EXCLUDES[*]}"
+  fi
+  tar "${TAR_EXCLUDES[@]}" -xf "${archive}" -C "${DATAROOT}"
   touch "${marker}"
 
   if [[ "${compact_cleanup}" == "1" ]]; then

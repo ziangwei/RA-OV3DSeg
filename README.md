@@ -553,6 +553,7 @@ Approximate storage planning:
 - Full blobs for all 10 trainval parts: roughly hundreds of GB and unnecessary for the current keyframe pipeline.
 - Keyframe blobs for all 10 trainval parts: roughly 40-50GB plus metadata/lidarseg.
 - With `--keep_archives` off, `wget -c` resumes interrupted archive downloads and extracted archives are deleted after each part.
+- Radar and sweeps are excluded during `tar` extraction by default, so they do not temporarily consume quota.
 - Extraction progress is tracked by marker files in `downloads_trainval/.extracted_compact_*`; rerunning the script skips already extracted parts.
 
 ## MVP-v7 Dense-Logit Distillation
