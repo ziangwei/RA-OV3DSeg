@@ -6,6 +6,7 @@ DATAROOT="/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DS
 DOWNLOAD_DIR=""
 FIRST_PART=1
 NUM_PARTS=10
+BLOB_TYPE="keyframes"
 WITH_LIDARSEG=1
 KEEP_ARCHIVES=0
 KEEP_SWEEPS=0
@@ -26,6 +27,8 @@ This keeps only what the current project pipeline needs:
 
 By default it deletes archives after extraction and removes sweeps/radar data after
 each blob archive, which reduces peak and final disk usage.
+By default it downloads keyframe blobs only, because the current pipeline uses
+nuScenes annotated sample keyframes, not non-keyframe sweeps.
 
 Usage:
   bash scripts/server_prepare_nuscenes_trainval_compact.sh \
@@ -37,6 +40,7 @@ Options:
   --download_dir PATH   Archive staging directory. Default: DATAROOT/downloads_trainval
   --first_part N        First trainval blob index, 1-10. Default: 1
   --num_parts N         Number of trainval blob archives to process. Default: 10
+  --blob_type TYPE      keyframes or full. Default: keyframes
   --no_lidarseg         Do not download/extract nuScenes-lidarseg.
   --keep_archives       Keep .tgz/.tar.bz2 archives after extraction.
   --keep_sweeps         Keep sweeps/. Not needed for current RA-OV3DSeg pipeline.
@@ -67,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --num_parts)
       NUM_PARTS="$2"
+      shift 2
+      ;;
+    --blob_type)
+      BLOB_TYPE="$2"
       shift 2
       ;;
     --no_lidarseg)
@@ -118,12 +126,17 @@ if [[ "${LAST_PART}" -gt 10 ]]; then
   echo "[ERROR] first_part + num_parts - 1 must be <= 10." >&2
   exit 2
 fi
+if [[ "${BLOB_TYPE}" != "keyframes" && "${BLOB_TYPE}" != "full" ]]; then
+  echo "[ERROR] --blob_type must be keyframes or full." >&2
+  exit 2
+fi
 
 mkdir -p "${DATAROOT}" "${DOWNLOAD_DIR}"
 
 echo "[INFO] dataroot=${DATAROOT}"
 echo "[INFO] download_dir=${DOWNLOAD_DIR}"
 echo "[INFO] parts=${FIRST_PART}-${LAST_PART}"
+echo "[INFO] blob_type=${BLOB_TYPE}"
 echo "[INFO] with_lidarseg=${WITH_LIDARSEG}"
 echo "[INFO] keep_archives=${KEEP_ARCHIVES}"
 echo "[INFO] keep_sweeps=${KEEP_SWEEPS}"
@@ -136,9 +149,9 @@ if [[ -n "${NUSCENES_BASE_URL:-}" ]]; then
   BASE_URLS+=("${NUSCENES_BASE_URL}")
 fi
 BASE_URLS+=(
-  "https://www.nuscenes.org/data"
   "https://d36yt3mvayqw5m.cloudfront.net/public/v1.0"
   "https://motional-nuscenes.s3.amazonaws.com/public/v1.0"
+  "https://www.nuscenes.org/data"
 )
 
 free_gb() {
@@ -154,41 +167,50 @@ check_free_space() {
   fi
 }
 
-validate_archive_or_die() {
+validate_archive() {
   local file="$1"
   local archive="${DOWNLOAD_DIR}/${file}"
   local magic=""
 
   if [[ ! -s "${archive}" ]]; then
     echo "[ERROR] archive is missing or empty: ${archive}" >&2
-    exit 1
+    return 1
   fi
 
   case "${file}" in
     *.tgz|*.tar.gz)
       magic="$(head -c 2 "${archive}" | od -An -tx1 | tr -d ' \n')"
       if [[ "${magic}" != "1f8b" ]]; then
-        echo "[ERROR] downloaded file is not a gzip archive: ${archive}" >&2
-        echo "[ERROR] this usually means the official direct link returned an HTML page/login/download page." >&2
-        echo "[ERROR] first bytes:" >&2
+        echo "[WARN] downloaded file is not a gzip archive: ${archive}" >&2
+        echo "[WARN] this usually means the URL returned an HTML page/login/download page." >&2
+        echo "[WARN] first bytes:" >&2
         head -c 240 "${archive}" >&2 || true
         echo >&2
-        echo "[ERROR] remove the bad file and manually download ${file} into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
-        exit 1
+        return 1
       fi
       ;;
     *.tar.bz2)
       magic="$(head -c 3 "${archive}" | od -An -tc | tr -d ' \n')"
       if [[ "${magic}" != "BZh" ]]; then
-        echo "[ERROR] downloaded file is not a bzip2 archive: ${archive}" >&2
-        echo "[ERROR] first bytes:" >&2
+        echo "[WARN] downloaded file is not a bzip2 archive: ${archive}" >&2
+        echo "[WARN] first bytes:" >&2
         head -c 240 "${archive}" >&2 || true
         echo >&2
-        echo "[ERROR] remove the bad file and manually download ${file} into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
-        exit 1
+        return 1
       fi
       ;;
   esac
+  return 0
+}
+
+validate_archive_or_die() {
+  local file="$1"
+  local archive="${DOWNLOAD_DIR}/${file}"
+  if ! validate_archive "${file}"; then
+    echo "[ERROR] invalid archive: ${archive}" >&2
+    echo "[ERROR] If all automatic URLs fail, manually download ${file} into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
+    exit 1
+  fi
 }
 
 download_one() {
@@ -217,8 +239,11 @@ download_one() {
     echo "[INFO] downloading ${url}"
     if wget -c -O "${partial}" "${url}"; then
       mv "${partial}" "${archive}"
-      validate_archive_or_die "${file}"
-      return
+      if validate_archive "${file}"; then
+        return
+      fi
+      echo "[WARN] invalid archive from ${url}; deleting and trying next mirror"
+      rm -f "${archive}" "${partial}"
     fi
     echo "[WARN] failed: ${url}"
   done
@@ -273,7 +298,11 @@ extract_one() {
 extract_one "v1.0-trainval_meta.tgz" 0
 
 for part in $(seq "${FIRST_PART}" "${LAST_PART}"); do
-  printf -v file "v1.0-trainval%02d_blobs.tgz" "${part}"
+  if [[ "${BLOB_TYPE}" == "keyframes" ]]; then
+    printf -v file "v1.0-trainval%02d_keyframes.tgz" "${part}"
+  else
+    printf -v file "v1.0-trainval%02d_blobs.tgz" "${part}"
+  fi
   extract_one "${file}" 1
 done
 

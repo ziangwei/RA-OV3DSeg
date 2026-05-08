@@ -520,8 +520,9 @@ bash scripts/server_cleanup_nuscenes_trainval.sh \
 
 ## Compact Trainval For RA-OV3DSeg
 
-For the current RA-OV3DSeg pipeline, 200GB free space is not enough for full nuScenes trainval with all sweeps/radar kept.
-Use the compact script below first: it keeps `samples/CAM_*`, `samples/LIDAR_TOP`, `maps`, `v1.0-trainval`, and `lidarseg/v1.0-trainval`, while deleting `sweeps/`, radar folders, and archives by default.
+For the current RA-OV3DSeg pipeline, use `Keyframe blobs only`, not the full 29GB-per-part blob archives.
+The current pipeline reads nuScenes annotated `sample` keyframes: `samples/CAM_*`, `samples/LIDAR_TOP`, `maps`, `v1.0-trainval`, and `lidarseg/v1.0-trainval`.
+It does not use non-keyframe `sweeps/`.
 
 Recommended compact trainval command for the LRZ server:
 
@@ -531,6 +532,7 @@ bash scripts/server_prepare_nuscenes_trainval_compact.sh \
   --download_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes/downloads_trainval \
   --first_part 1 \
   --num_parts 10 \
+  --blob_type keyframes \
   --min_free_gb 35
 ```
 
@@ -542,15 +544,16 @@ bash scripts/server_prepare_nuscenes_trainval_compact.sh \
   --download_dir /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes/downloads_trainval \
   --skip_download \
   --first_part 1 \
-  --num_parts 10
+  --num_parts 10 \
+  --blob_type keyframes
 ```
 
 Approximate storage planning:
 
-- Full trainval all sensors, extracted only: usually >400GB.
-- Full trainval all sensors while keeping archives: usually >700GB.
-- Compact RA-OV3DSeg trainval: roughly 80-130GB final, with streaming peak usually under 200GB.
-- If space gets tight, start with `--num_parts 3` or `--num_parts 5`, run V9 on that subset, then extend later.
+- Full blobs for all 10 trainval parts: roughly hundreds of GB and unnecessary for the current keyframe pipeline.
+- Keyframe blobs for all 10 trainval parts: roughly 40-50GB plus metadata/lidarseg.
+- With `--keep_archives` off, `wget -c` resumes interrupted archive downloads and extracted archives are deleted after each part.
+- Extraction progress is tracked by marker files in `downloads_trainval/.extracted_compact_*`; rerunning the script skips already extracted parts.
 
 ## MVP-v7 Dense-Logit Distillation
 
