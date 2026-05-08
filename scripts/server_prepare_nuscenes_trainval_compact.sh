@@ -53,6 +53,10 @@ Options:
 Official direct links may fail depending on nuScenes auth/session behavior. If that
 happens, manually download the listed archives from https://www.nuscenes.org/download
 into --download_dir, then rerun with --skip_download.
+
+Environment overrides:
+  NUSCENES_BASE_URL             Base URL for trainval meta/keyframe archives.
+  NUSCENES_LIDARSEG_BASE_URL    Base URL for lidarseg archive.
 EOF
 }
 
@@ -155,6 +159,16 @@ BASE_URLS+=(
   "https://www.nuscenes.org/data"
 )
 
+LIDARSEG_BASE_URLS=()
+if [[ -n "${NUSCENES_LIDARSEG_BASE_URL:-}" ]]; then
+  LIDARSEG_BASE_URLS+=("${NUSCENES_LIDARSEG_BASE_URL}")
+fi
+LIDARSEG_BASE_URLS+=(
+  "https://d36yt3mvayqw5m.cloudfront.net/public/nuscenes-lidarseg-v1.0"
+  "https://motional-nuscenes.s3.amazonaws.com/public/nuscenes-lidarseg-v1.0"
+  "https://www.nuscenes.org/data"
+)
+
 free_gb() {
   df -BG "${DATAROOT}" | awk 'NR==2 {gsub("G", "", $4); print $4}'
 }
@@ -214,8 +228,10 @@ validate_archive_or_die() {
   fi
 }
 
-download_one() {
+download_one_from_urls() {
   local file="$1"
+  shift
+  local url_list=("$@")
   local archive="${DOWNLOAD_DIR}/${file}"
   local partial="${archive}.part"
 
@@ -235,7 +251,7 @@ download_one() {
     return
   fi
 
-  for base_url in "${BASE_URLS[@]}"; do
+  for base_url in "${url_list[@]}"; do
     local url="${base_url%/}/${file}"
     echo "[INFO] downloading ${url}"
     if wget -c -O "${partial}" "${url}"; then
@@ -252,6 +268,16 @@ download_one() {
   echo "[ERROR] Could not download ${file}." >&2
   echo "[ERROR] Download it manually from https://www.nuscenes.org/download into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
   exit 1
+}
+
+download_one() {
+  local file="$1"
+  download_one_from_urls "${file}" "${BASE_URLS[@]}"
+}
+
+download_lidarseg() {
+  local file="$1"
+  download_one_from_urls "${file}" "${LIDARSEG_BASE_URLS[@]}"
 }
 
 build_tar_excludes() {
@@ -282,6 +308,7 @@ remove_unneeded_for_ra_ov3dseg() {
 extract_one() {
   local file="$1"
   local compact_cleanup="${2:-1}"
+  local source_group="${3:-trainval}"
   local archive="${DOWNLOAD_DIR}/${file}"
   local marker="${DOWNLOAD_DIR}/.extracted_compact_${file}"
 
@@ -290,7 +317,11 @@ extract_one() {
     return
   fi
 
-  download_one "${file}"
+  if [[ "${source_group}" == "lidarseg" ]]; then
+    download_lidarseg "${file}"
+  else
+    download_one "${file}"
+  fi
   echo "[INFO] extracting ${archive} -> ${DATAROOT}"
   build_tar_excludes
   if [[ "${#TAR_EXCLUDES[@]}" -gt 0 ]]; then
@@ -324,7 +355,7 @@ for part in $(seq "${FIRST_PART}" "${LAST_PART}"); do
 done
 
 if [[ "${WITH_LIDARSEG}" == "1" ]]; then
-  extract_one "nuScenes-lidarseg-all-v1.0.tar.bz2" 0
+  extract_one "nuScenes-lidarseg-all-v1.0.tar.bz2" 0 lidarseg
 fi
 
 echo "[INFO] final compact layout check:"
