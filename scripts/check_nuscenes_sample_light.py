@@ -103,18 +103,36 @@ def find_by_token(json_path: Path, token: str) -> dict | None:
     return None
 
 
-def find_sample_data_records(json_path: Path, tokens: set[str]) -> dict[str, dict]:
-    found: dict[str, dict] = {}
-    if not tokens:
-        return found
+def find_sample_data_for_sample(json_path: Path, sample_token: str) -> list[dict]:
+    records: list[dict] = []
+    for record in iter_json_objects(json_path):
+        if record.get("sample_token") == sample_token and bool(record.get("is_key_frame", False)):
+            records.append(record)
+    return records
 
+
+def load_sensor_channels(json_path: Path) -> dict[str, str]:
+    token_to_channel: dict[str, str] = {}
     for record in iter_json_objects(json_path):
         token = record.get("token")
-        if token in tokens:
-            found[token] = record
-            if len(found) == len(tokens):
-                break
-    return found
+        channel = record.get("channel")
+        if token and channel:
+            token_to_channel[token] = channel
+    return token_to_channel
+
+
+def load_calibrated_sensor_channels(
+    json_path: Path,
+    sensor_token_to_channel: dict[str, str],
+) -> dict[str, str]:
+    calibrated_token_to_channel: dict[str, str] = {}
+    for record in iter_json_objects(json_path):
+        token = record.get("token")
+        sensor_token = record.get("sensor_token")
+        channel = sensor_token_to_channel.get(sensor_token or "")
+        if token and channel:
+            calibrated_token_to_channel[token] = channel
+    return calibrated_token_to_channel
 
 
 def find_lidarseg_record(json_path: Path, lidar_sample_data_token: str) -> dict | None:
@@ -173,9 +191,11 @@ def main() -> int:
     sample_json = version_dir / "sample.json"
     scene_json = version_dir / "scene.json"
     sample_data_json = version_dir / "sample_data.json"
+    calibrated_sensor_json = version_dir / "calibrated_sensor.json"
+    sensor_json = version_dir / "sensor.json"
     lidarseg_json = version_dir / "lidarseg.json"
 
-    for required_path in [sample_json, scene_json, sample_data_json]:
+    for required_path in [sample_json, scene_json, sample_data_json, calibrated_sensor_json, sensor_json]:
         if not required_path.exists():
             error(f"missing metadata file: {required_path}")
             return 2
@@ -189,27 +209,33 @@ def main() -> int:
     scene_token = sample["scene_token"]
     timestamp = int(sample["timestamp"])
     scene = find_by_token(scene_json, scene_token) or {}
-
-    sensor_tokens = {
-        sensor_name: sample.get("data", {}).get(sensor_name)
-        for sensor_name in ["LIDAR_TOP", *CAMERA_CHANNELS]
-    }
-    requested_tokens = {token for token in sensor_tokens.values() if token}
-    sample_data_records = find_sample_data_records(sample_data_json, requested_tokens)
+    sensor_token_to_channel = load_sensor_channels(sensor_json)
+    calibrated_token_to_channel = load_calibrated_sensor_channels(
+        calibrated_sensor_json,
+        sensor_token_to_channel,
+    )
+    sample_data_for_sample = find_sample_data_for_sample(sample_data_json, sample_token)
+    sample_data_records_by_channel: dict[str, dict] = {}
+    for record in sample_data_for_sample:
+        channel = calibrated_token_to_channel.get(record.get("calibrated_sensor_token", ""))
+        if channel:
+            sample_data_records_by_channel[channel] = record
 
     info(f"sample token: {sample_token}")
     info(f"scene token: {scene_token}")
     if scene:
         info(f"scene name: {scene.get('name', '')}")
     info(f"timestamp: {timestamp}")
+    info(f"keyframe sample_data records found: {len(sample_data_for_sample)}")
 
     sensor_paths: dict[str, str] = {}
     sensor_status: dict[str, dict] = {}
     exit_code = 0
 
-    for sensor_name, token in sensor_tokens.items():
+    for sensor_name in ["LIDAR_TOP", *CAMERA_CHANNELS]:
+        record = sample_data_records_by_channel.get(sensor_name)
+        token = record.get("token") if record else None
         exists_in_sample = token is not None
-        record = sample_data_records.get(token or "")
         data_path = resolve_data_path(dataroot, record.get("filename") if record else None)
         file_exists = bool(data_path and data_path.exists())
 
@@ -245,7 +271,8 @@ def main() -> int:
     lidarseg_label_count = None
     label_check = "not_run"
 
-    lidar_token = sensor_tokens.get("LIDAR_TOP")
+    lidar_record = sample_data_records_by_channel.get("LIDAR_TOP")
+    lidar_token = lidar_record.get("token") if lidar_record else None
     if not lidarseg_json.exists() or not lidar_token:
         warn("lidarseg labels not found, skip label check.")
         label_check = "labels_not_found"
