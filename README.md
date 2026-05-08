@@ -1,8 +1,18 @@
 # RA-OV3DSeg
 
-## Project Route Correction
+## Project Goal
 
-CLIP/SigLIP patch features are now treated as an MVP baseline only, not as the final 2D teacher. The intended mainline is a dense open-vocabulary 2D teacher, such as `openseg_dense`, that provides pixel-level semantic features or logits for projected LiDAR points.
+RA-OV3DSeg targets **Reliability-Aware Open-Vocabulary 3D Semantic Segmentation** for outdoor driving scenes.
+
+The final model should not be a fixed 32-way nuScenes classifier. The main output should be a 3D point embedding aligned with a text embedding space. At inference time, users provide arbitrary class names, the text encoder embeds those names, and each 3D point is classified by cosine similarity between the point embedding and the text embeddings.
+
+The closed-set classifier used in the MVP is only an auxiliary training/evaluation head:
+
+- `point_embedding_head`: main open-vocabulary output for arbitrary text classes.
+- `base_classifier_head`: auxiliary head for base-class CE loss during training.
+- `dense_logit_head/distillation`: optional teacher supervision for known prompt sets, not the final open-vocabulary interface.
+
+CLIP/SigLIP patch features are treated as an MVP baseline only, not as the final 2D teacher. The intended mainline is a dense open-vocabulary 2D teacher, such as `openseg_dense`, that provides pixel-level semantic features or logits for projected LiDAR points.
 
 Teacher registry:
 
@@ -16,6 +26,16 @@ Teacher registry:
 - `sparse_unet_spconv`: planned V5 sparse-conv 3D student.
 
 See `docs/ROADMAP.md` for the corrected project path.
+
+## Data Scope
+
+No extra dataset is required for the next stage beyond nuScenes-lidarseg:
+
+- `v1.0-mini` for smoke tests.
+- `v1.0-trainval` keyframe blobs for larger training/eval.
+- `nuScenes-lidarseg-all-v1.0.tar.bz2` for point-level semantic labels.
+
+We do not need nuScenes full non-keyframe sweeps for the current method. DriveLM QA data is not required for RA-OV3DSeg unless a later VLM-reasoning extension is explicitly added.
 
 `RA-OV3DSeg` 是 `Reliability-Aware Open-Vocabulary 3D Segmentation` 的代码仓库。
 

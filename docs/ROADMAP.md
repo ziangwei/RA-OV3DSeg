@@ -1,6 +1,7 @@
 # RA-OV3DSeg Roadmap
 
-This project should not treat CLIP patch features as the final teacher.
+This project should not treat CLIP patch features as the final teacher, and it
+should not treat a fixed 32-way classifier as the final open-vocabulary model.
 
 ## Correct Mainline
 
@@ -8,12 +9,36 @@ The intended research pipeline is:
 
 ```text
 dense open-vocabulary 2D teacher
-  -> pixel-level or mask-level semantic features/logits
+  -> pixel-level or mask-level text-aligned semantic features/logits
   -> LiDAR-to-camera projection sampling
   -> reliability-aware 2D-to-3D distillation
-  -> sparse-conv 3D student
-  -> text-embedding open-vocabulary inference
+  -> sparse-conv 3D student point embeddings
+  -> arbitrary text prompts at inference
+  -> cosine(point_embedding, text_embedding) open-vocabulary classification
 ```
+
+The student should keep two roles separate:
+
+```text
+3D backbone
+  -> point embedding head        # final open-vocabulary inference path
+  -> base classifier head        # auxiliary CE loss on base classes only
+```
+
+The 32-class lidarseg classifier/logit distillation used in the MVP is an
+engineering scaffold for supervised debugging and teacher-signal validation. It
+is not the final open-vocabulary interface.
+
+## Data Requirement
+
+The dataset requirement remains nuScenes-lidarseg:
+
+- `v1.0-mini` for smoke tests.
+- `v1.0-trainval` keyframe blobs for larger experiments.
+- `nuScenes-lidarseg-all-v1.0.tar.bz2` for point-level labels.
+
+No DriveLM data is required for the core RA-OV3DSeg method. Full non-keyframe
+sweeps are not required by the current pipeline.
 
 ## Teacher Backends
 
@@ -79,7 +104,7 @@ camera image + class prompts
   -> point-level dense teacher logits
 ```
 
-V7 connects those dense point logits to sparse 3D training:
+V7 connects those dense point logits to sparse 3D training as a temporary closed-set scaffold:
 
 ```text
 point-level dense teacher logits
@@ -106,6 +131,19 @@ shared precompute cache
   -> aggregate mini mIoU summary
 ```
 
+V10 should restore the open-vocabulary inference path as a first-class target:
+
+```text
+trained 3D point embeddings
+  -> arbitrary class_names_csv / class_names_path
+  -> text encoder
+  -> cosine similarity prediction
+  -> base / novel / all mIoU against lidarseg when labels are available
+```
+
+After V10, teacher upgrade should focus on improving text-aligned dense teacher
+quality, not on adding new datasets.
+
 `openseg_dense` remains the preferred final dense teacher direction once a stable
 checkpoint and dependency path are selected.
 
@@ -115,3 +153,4 @@ The final experiments should compare:
 - Dense teacher without reliability.
 - Dense teacher with reliability-aware distillation.
 - Base-only supervised 3D student.
+- Closed-set auxiliary classifier vs text-embedding open-vocabulary inference.
