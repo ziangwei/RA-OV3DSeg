@@ -15,6 +15,7 @@ CAMERA_CHANNELS = [
     "CAM_BACK_LEFT",
     "CAM_BACK_RIGHT",
 ]
+TARGET_CHANNELS = ["LIDAR_TOP", *CAMERA_CHANNELS]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,12 +104,25 @@ def find_by_token(json_path: Path, token: str) -> dict | None:
     return None
 
 
-def find_sample_data_for_sample(json_path: Path, sample_token: str) -> list[dict]:
-    records: list[dict] = []
+def find_sample_data_by_channel_for_sample(
+    json_path: Path,
+    sample_token: str,
+    calibrated_token_to_channel: dict[str, str],
+    target_channels: list[str],
+) -> tuple[dict[str, dict], int]:
+    records_by_channel: dict[str, dict] = {}
+    num_matching_keyframes = 0
+    target_channel_set = set(target_channels)
+
     for record in iter_json_objects(json_path):
         if record.get("sample_token") == sample_token and bool(record.get("is_key_frame", False)):
-            records.append(record)
-    return records
+            num_matching_keyframes += 1
+            channel = calibrated_token_to_channel.get(record.get("calibrated_sensor_token", ""))
+            if channel in target_channel_set and channel not in records_by_channel:
+                records_by_channel[channel] = record
+                if len(records_by_channel) == len(target_channel_set):
+                    break
+    return records_by_channel, num_matching_keyframes
 
 
 def load_sensor_channels(json_path: Path) -> dict[str, str]:
@@ -209,30 +223,36 @@ def main() -> int:
     scene_token = sample["scene_token"]
     timestamp = int(sample["timestamp"])
     scene = find_by_token(scene_json, scene_token) or {}
-    sensor_token_to_channel = load_sensor_channels(sensor_json)
-    calibrated_token_to_channel = load_calibrated_sensor_channels(
-        calibrated_sensor_json,
-        sensor_token_to_channel,
-    )
-    sample_data_for_sample = find_sample_data_for_sample(sample_data_json, sample_token)
-    sample_data_records_by_channel: dict[str, dict] = {}
-    for record in sample_data_for_sample:
-        channel = calibrated_token_to_channel.get(record.get("calibrated_sensor_token", ""))
-        if channel:
-            sample_data_records_by_channel[channel] = record
-
     info(f"sample token: {sample_token}")
     info(f"scene token: {scene_token}")
     if scene:
         info(f"scene name: {scene.get('name', '')}")
     info(f"timestamp: {timestamp}")
-    info(f"keyframe sample_data records found: {len(sample_data_for_sample)}")
+
+    info("loading sensor calibration metadata")
+    sensor_token_to_channel = load_sensor_channels(sensor_json)
+    calibrated_token_to_channel = load_calibrated_sensor_channels(
+        calibrated_sensor_json,
+        sensor_token_to_channel,
+    )
+    info("scanning sample_data.json for target keyframe sensors")
+    sample_data_records_by_channel, num_matching_keyframes = find_sample_data_by_channel_for_sample(
+        sample_data_json,
+        sample_token,
+        calibrated_token_to_channel,
+        TARGET_CHANNELS,
+    )
+    info(
+        "target keyframe sample_data records found: "
+        f"{len(sample_data_records_by_channel)}/{len(TARGET_CHANNELS)} "
+        f"(matching_keyframes_seen={num_matching_keyframes})"
+    )
 
     sensor_paths: dict[str, str] = {}
     sensor_status: dict[str, dict] = {}
     exit_code = 0
 
-    for sensor_name in ["LIDAR_TOP", *CAMERA_CHANNELS]:
+    for sensor_name in TARGET_CHANNELS:
         record = sample_data_records_by_channel.get(sensor_name)
         token = record.get("token") if record else None
         exists_in_sample = token is not None
