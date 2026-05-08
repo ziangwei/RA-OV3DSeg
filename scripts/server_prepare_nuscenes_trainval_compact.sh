@@ -154,6 +154,43 @@ check_free_space() {
   fi
 }
 
+validate_archive_or_die() {
+  local file="$1"
+  local archive="${DOWNLOAD_DIR}/${file}"
+  local magic=""
+
+  if [[ ! -s "${archive}" ]]; then
+    echo "[ERROR] archive is missing or empty: ${archive}" >&2
+    exit 1
+  fi
+
+  case "${file}" in
+    *.tgz|*.tar.gz)
+      magic="$(head -c 2 "${archive}" | od -An -tx1 | tr -d ' \n')"
+      if [[ "${magic}" != "1f8b" ]]; then
+        echo "[ERROR] downloaded file is not a gzip archive: ${archive}" >&2
+        echo "[ERROR] this usually means the official direct link returned an HTML page/login/download page." >&2
+        echo "[ERROR] first bytes:" >&2
+        head -c 240 "${archive}" >&2 || true
+        echo >&2
+        echo "[ERROR] remove the bad file and manually download ${file} into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
+        exit 1
+      fi
+      ;;
+    *.tar.bz2)
+      magic="$(head -c 3 "${archive}" | od -An -tc | tr -d ' \n')"
+      if [[ "${magic}" != "BZh" ]]; then
+        echo "[ERROR] downloaded file is not a bzip2 archive: ${archive}" >&2
+        echo "[ERROR] first bytes:" >&2
+        head -c 240 "${archive}" >&2 || true
+        echo >&2
+        echo "[ERROR] remove the bad file and manually download ${file} into ${DOWNLOAD_DIR}, then rerun with --skip_download." >&2
+        exit 1
+      fi
+      ;;
+  esac
+}
+
 download_one() {
   local file="$1"
   local archive="${DOWNLOAD_DIR}/${file}"
@@ -164,11 +201,13 @@ download_one() {
       echo "[ERROR] --skip_download set but archive is missing: ${archive}" >&2
       exit 1
     fi
+    validate_archive_or_die "${file}"
     echo "[INFO] using existing archive: ${archive}"
     return
   fi
 
   if [[ -s "${archive}" ]]; then
+    validate_archive_or_die "${file}"
     echo "[INFO] archive already exists: ${archive}"
     return
   fi
@@ -178,6 +217,7 @@ download_one() {
     echo "[INFO] downloading ${url}"
     if wget -c -O "${partial}" "${url}"; then
       mv "${partial}" "${archive}"
+      validate_archive_or_die "${file}"
       return
     fi
     echo "[WARN] failed: ${url}"
