@@ -227,6 +227,7 @@ dense_logits
 `(camera, height, width, class)`. `class_names` must start with the 32
 nuScenes-lidarseg names in `configs/nuscenes_lidarseg_class_names.txt`.
 See `docs/EXTERNAL_DENSE_TEACHER_FORMAT.md` for the full contract.
+For a CAT-Seg-specific server workflow, see `docs/CATSEG_SERVER_EXPORT.md`.
 
 First produce the manifest for the external teacher environment:
 
