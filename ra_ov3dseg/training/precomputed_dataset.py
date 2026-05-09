@@ -167,7 +167,12 @@ class PrecomputedPointFeatureDataset:
         dense_point_path: Path | None = None
 
         if raw_labels.shape[0] != point_xyz.shape[0]:
-            raise ValueError(f"label/point count mismatch: labels={raw_labels.shape[0]}, points={point_xyz.shape[0]}")
+            raise ValueError(
+                "label/point count mismatch. This usually means stale precomputed outputs "
+                "from a different nuScenes version or dataroot were reused. "
+                f"sample_idx={sample_idx}, labels={raw_labels.shape[0]}, points={point_xyz.shape[0]}, "
+                f"point_feature_path={point_feature_path}, reliability_path={reliability_path}"
+            )
         if teacher_features.shape[0] != point_xyz.shape[0]:
             raise ValueError("teacher feature count does not match point count.")
         if teacher_valid_mask.shape[0] != point_xyz.shape[0]:

@@ -154,16 +154,18 @@ def python_script(script_name: str) -> list[str]:
 
 
 def build_dirs(outputs_dir: Path, experiment_dir: Path) -> dict[str, Path]:
+    precompute_dir = experiment_dir / "precompute"
     return {
         "outputs": outputs_dir,
         "experiment": experiment_dir,
-        "projections": outputs_dir / "projections",
-        "features2d": outputs_dir / "features2d",
-        "point_features": outputs_dir / "point_features",
-        "zero_shot": outputs_dir / "zero_shot",
-        "reliability": outputs_dir / "reliability",
-        "dense_teacher_logits": outputs_dir / "dense_teacher_logits",
-        "dense_point_logits": outputs_dir / "dense_point_logits",
+        "precompute": precompute_dir,
+        "projections": precompute_dir / "projections",
+        "features2d": precompute_dir / "features2d",
+        "point_features": precompute_dir / "point_features",
+        "zero_shot": precompute_dir / "zero_shot",
+        "reliability": precompute_dir / "reliability",
+        "dense_teacher_logits": precompute_dir / "dense_teacher_logits",
+        "dense_point_logits": precompute_dir / "dense_point_logits",
         "training": experiment_dir / "training",
         "predictions": experiment_dir / "predictions3d",
         "evaluation": experiment_dir / "evaluation3d",

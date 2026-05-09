@@ -36,6 +36,27 @@ outputs/logs/v9_<experiment_name>_<timestamp>.log
 outputs/logs/v9_<experiment_name>_latest.log
 ```
 
+Experiment artifacts are isolated under:
+
+```text
+outputs/experiments/<experiment_name>/
+  precompute/
+    projections/
+    features2d/
+    point_features/
+    zero_shot/
+    reliability/
+    dense_teacher_logits/
+    dense_point_logits/
+  training/
+  predictions3d/
+  evaluation3d/
+```
+
+Do not reuse root-level MVP folders such as `outputs/point_features/` for trainval
+experiments. Those folders may contain mini artifacts with the same
+`sample_0000` names, which can cause label/point count mismatches.
+
 Watch progress:
 
 ```bash
