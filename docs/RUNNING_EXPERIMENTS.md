@@ -133,3 +133,64 @@ New training or evaluation stages should follow the same pattern:
 - Keep experiment artifacts under `outputs/experiments/<experiment_name>/`.
 - Make the Python script configurable, but make the bash wrapper the normal
   server entrypoint.
+
+## V11 Text-Aligned Embedding Training
+
+V10 proved the open-vocabulary inference interface exists, but the point
+embeddings were not yet aligned to text. V11 warm-starts from the V9 sparse
+student checkpoint and adds a base-class text-prototype alignment loss.
+
+Default run:
+
+```bash
+bash scripts/run_v11_text_aligned_training.sh
+```
+
+This reuses:
+
+```text
+outputs/experiments/trainval_v9_128_isolated/precompute/
+outputs/experiments/trainval_v9_128_isolated/training/sparse_unet_spconv_latest.pt
+```
+
+and writes:
+
+```text
+outputs/experiments/trainval_v11_text_align_128/
+  training/
+  open_vocab_predictions3d/
+  open_vocab_evaluation3d/
+outputs/logs/v11_trainval_v11_text_align_128_<timestamp>.log
+outputs/logs/v11_trainval_v11_text_align_128_latest.log
+```
+
+Watch progress:
+
+```bash
+tail -f outputs/logs/v11_trainval_v11_text_align_128_latest.log
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v11 \
+  --sample_idx 128 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v11_text_align_128 \
+  --output_dir outputs/verification
+```
+
+Quick smoke before a full V11 run:
+
+```bash
+bash scripts/run_v11_text_aligned_training.sh \
+  --experiment_name trainval_v11_text_align_8 \
+  --train_max_samples 8 \
+  --eval_max_samples 8 \
+  --epochs 2
+```
+
+If the first run needs to download the CLIP text model, omit
+`--local_files_only`. After the model is cached, add `--local_files_only` for
+stable offline reruns.

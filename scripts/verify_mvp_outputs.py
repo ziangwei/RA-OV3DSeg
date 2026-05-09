@@ -25,12 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
             "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
-            "v9 mini experiment protocol, v10 open-vocabulary inference/eval."
+            "v9 mini experiment protocol, v10 open-vocabulary inference/eval, "
+            "v11 text-aligned 3D embedding training/eval."
         ),
     )
     parser.add_argument(
@@ -948,10 +949,11 @@ def verify_mini_experiment_v9(outputs_dir: Path, args, checks: list[dict[str, An
 
 
 def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    default_experiment_name = "trainval_v11_text_align_128" if args.stage == "v11" else "trainval_v10_open_vocab_128"
     experiment_dir = (
         Path(args.experiment_dir)
         if args.experiment_dir is not None
-        else outputs_dir / "experiments" / "trainval_v10_open_vocab_128"
+        else outputs_dir / "experiments" / default_experiment_name
     )
     prediction_dir = (
         Path(args.open_vocab_prediction_dir)
@@ -1063,6 +1065,65 @@ def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]])
         )
 
 
+def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v11_text_align_128"
+    )
+    training_dir = experiment_dir / "training"
+    summary_path = training_dir / "train_summary.json"
+    latest_checkpoint = training_dir / "sparse_unet_spconv_latest.pt"
+
+    if not check_file(summary_path, checks, "v11_training_summary_json"):
+        return
+    check_file(latest_checkpoint, checks, "v11_latest_checkpoint")
+
+    summary = load_json(summary_path)
+    text_alignment = summary.get("text_alignment", {})
+    loss_weights = summary.get("loss_weights", {})
+    epoch_logs = summary.get("epoch_logs", [])
+    final_epoch = epoch_logs[-1] if epoch_logs else {}
+    init_checkpoint = str(summary.get("init_checkpoint", ""))
+
+    add_check(
+        checks,
+        "v11_text_alignment_enabled",
+        bool(text_alignment.get("enabled", False)),
+        f"text_alignment={text_alignment}",
+        text_alignment,
+    )
+    add_check(
+        checks,
+        "v11_text_align_weight",
+        float(loss_weights.get("text_align_weight", 0.0)) > 0.0,
+        f"text_align_weight={loss_weights.get('text_align_weight')}",
+        loss_weights,
+    )
+    add_check(
+        checks,
+        "v11_epoch_logs",
+        bool(epoch_logs) and "avg_text_align_loss" in final_epoch,
+        f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
+        final_epoch,
+    )
+    if "avg_text_align_loss" in final_epoch:
+        text_loss = float(final_epoch["avg_text_align_loss"])
+        add_check(
+            checks,
+            "v11_text_align_loss_finite",
+            np.isfinite(text_loss) and text_loss >= 0.0,
+            f"avg_text_align_loss={text_loss}",
+            final_epoch,
+        )
+    add_check(
+        checks,
+        "v11_warm_start_checkpoint",
+        bool(init_checkpoint) and Path(init_checkpoint).exists(),
+        f"init_checkpoint={init_checkpoint}",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -1070,7 +1131,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage not in {"v9", "v10"}:
+    if args.stage not in {"v9", "v10", "v11"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -1094,6 +1155,9 @@ def main() -> int:
     if args.stage == "v9":
         verify_mini_experiment_v9(outputs_dir, args, checks)
     if args.stage == "v10":
+        verify_open_vocab_v10(outputs_dir, args, checks)
+    if args.stage == "v11":
+        verify_text_aligned_training_v11(outputs_dir, args, checks)
         verify_open_vocab_v10(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]

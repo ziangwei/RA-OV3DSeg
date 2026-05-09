@@ -24,6 +24,7 @@ from ra_ov3dseg.training.losses import (  # noqa: E402
     cosine_distillation_loss,
     dense_logit_distillation_loss,
     supervised_ce_loss,
+    text_prototype_alignment_loss,
 )
 from ra_ov3dseg.training.precomputed_dataset import (  # noqa: E402
     IGNORE_INDEX,
@@ -75,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split_config", default="configs/base_novel_split.yaml", type=str)
     parser.add_argument("--output_dir", default="outputs/training_v4", type=str)
     parser.add_argument(
+        "--init_checkpoint",
+        default=None,
+        type=str,
+        help="Optional checkpoint to initialize model weights before training.",
+    )
+    parser.add_argument(
         "--backbone",
         default=DEBUG_BACKBONE,
         choices=list(SUPPORTED_BACKBONES),
@@ -100,7 +107,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ce_weight", default=1.0, type=float)
     parser.add_argument("--distill_weight", default=1.0, type=float)
     parser.add_argument("--dense_logit_weight", default=1.0, type=float)
+    parser.add_argument(
+        "--text_align_weight",
+        default=0.0,
+        type=float,
+        help="Weight for supervised point embedding -> class text prototype cosine loss.",
+    )
     parser.add_argument("--dense_temperature", default=1.0, type=float)
+    parser.add_argument("--text_model_name", default="openai/clip-vit-base-patch16", type=str)
+    parser.add_argument("--text_prompt_template", default="a {} in a driving scene", type=str)
+    parser.add_argument("--cache_dir", default=None, type=str, help="Hugging Face cache dir for text prototypes.")
+    parser.add_argument("--local_files_only", action="store_true", help="Load text encoder from local cache only.")
     parser.add_argument(
         "--student_output_space",
         default="auto",
@@ -124,6 +141,13 @@ def import_torch():
     except ImportError as exc:
         raise ImportError("train_3d_segmentor.py requires PyTorch. Install a CUDA-matched torch build first.") from exc
     return torch, DistributedDataParallel, DataLoader, DistributedSampler
+
+
+def torch_load_checkpoint(torch_module, checkpoint_path: Path) -> dict[str, Any]:
+    try:
+        return torch_module.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except TypeError:
+        return torch_module.load(checkpoint_path, map_location="cpu")
 
 
 def setup_distributed(torch_module, ddp_backend: str) -> dict[str, Any]:
@@ -212,6 +236,7 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
         "ce_loss_sum",
         "distill_loss_sum",
         "dense_logit_loss_sum",
+        "text_align_loss_sum",
         "grad_norm_sum",
     ]
     tensor = torch_module.tensor([float(stats[key]) for key in keys], dtype=torch_module.float64, device=device)
@@ -226,8 +251,28 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
     reduced["avg_ce_loss"] = reduced["ce_loss_sum"] / steps
     reduced["avg_distill_loss"] = reduced["distill_loss_sum"] / steps
     reduced["avg_dense_logit_loss"] = reduced["dense_logit_loss_sum"] / steps
+    reduced["avg_text_align_loss"] = reduced["text_align_loss_sum"] / steps
     reduced["avg_grad_norm"] = reduced["grad_norm_sum"] / steps
     return reduced
+
+
+def build_text_prototypes(args: argparse.Namespace, class_names: list[str], torch_module, device):
+    if args.text_align_weight <= 0.0:
+        return None
+    from ra_ov3dseg.models.text_encoder import TextEncoder
+
+    encoder = TextEncoder(
+        model_name=args.text_model_name,
+        device=str(device),
+        cache_dir=args.cache_dir,
+        local_files_only=args.local_files_only,
+    )
+    text_result = encoder.encode_texts(
+        class_names,
+        prompt_template=args.text_prompt_template,
+        normalize=True,
+    )
+    return torch_module.from_numpy(text_result["text_embeddings"]).float().to(device)
 
 
 def save_checkpoint(
@@ -276,6 +321,8 @@ def main() -> int:
         raise ValueError("--batch_size must be positive.")
     if args.dense_temperature <= 0:
         raise ValueError("--dense_temperature must be positive.")
+    if args.text_align_weight < 0:
+        raise ValueError("--text_align_weight must be non-negative.")
 
     backbone_spec = describe_backbone(args.backbone)
     distributed_state = setup_distributed(torch, args.ddp_backend)
@@ -339,6 +386,7 @@ def main() -> int:
                 "Precompute V6 first or lower --max_samples/--sample_idx."
             )
     class_split = build_class_split(args.class_names_path, args.split_config)
+    base_text_prototypes = build_text_prototypes(args, class_split.base_class_names, torch, device)
     student_output_space = args.student_output_space
     if student_output_space == "auto":
         student_output_space = "all_lidarseg" if load_dense_logits else "base"
@@ -397,6 +445,14 @@ def main() -> int:
         point_cloud_range=tuple(args.point_cloud_range),
         sparse_base_channels=args.sparse_base_channels,
     ).to(device)
+    if args.init_checkpoint is not None:
+        init_checkpoint_path = Path(args.init_checkpoint).expanduser().resolve()
+        if not init_checkpoint_path.exists():
+            raise FileNotFoundError(f"init checkpoint not found: {init_checkpoint_path}")
+        init_checkpoint = torch_load_checkpoint(torch, init_checkpoint_path)
+        model.load_state_dict(init_checkpoint["model_state_dict"], strict=True)
+        if main_process:
+            logger.info("initialized model from checkpoint: %s", init_checkpoint_path)
     if distributed_state["distributed"]:
         device_ids = [int(distributed_state["local_rank"])] if device.type == "cuda" else None
         model = DistributedDataParallel(
@@ -410,17 +466,19 @@ def main() -> int:
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     use_feature_distill = args.teacher_mode in {FEATURE_DISTILL_MODE, HYBRID_TEACHER_MODE}
     use_dense_logit_distill = args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
+    use_text_align = bool(args.text_align_weight > 0.0 and base_text_prototypes is not None)
 
     if main_process:
         logger.info(
             (
                 "train start | backbone=%s | role=%s | teacher_mode=%s | output_space=%s | "
-                "version=%s | samples=%d | device=%s | ddp=%s | world_size=%d"
+                "text_align=%s | version=%s | samples=%d | device=%s | ddp=%s | world_size=%d"
             ),
             backbone_spec.backbone,
             backbone_spec.role,
             args.teacher_mode,
             student_output_space,
+            use_text_align,
             args.version,
             len(sample_indices),
             device,
@@ -445,6 +503,7 @@ def main() -> int:
             "ce_loss_sum": 0.0,
             "distill_loss_sum": 0.0,
             "dense_logit_loss_sum": 0.0,
+            "text_align_loss_sum": 0.0,
             "grad_norm_sum": 0.0,
         }
 
@@ -483,10 +542,22 @@ def main() -> int:
                 else:
                     dense_logit_loss = outputs["logits"].sum() * 0.0
 
+                if use_text_align:
+                    text_align_loss = text_prototype_alignment_loss(
+                        student_features=outputs["point_features"],
+                        train_labels=torch_batch["train_labels"],
+                        text_prototypes=base_text_prototypes,
+                        valid_mask=model_valid_mask,
+                        ignore_index=IGNORE_INDEX,
+                    )
+                else:
+                    text_align_loss = outputs["point_features"].sum() * 0.0
+
                 total_loss = (
                     args.ce_weight * ce_loss
                     + args.distill_weight * distill_loss
                     + args.dense_logit_weight * dense_logit_loss
+                    + args.text_align_weight * text_align_loss
                 )
 
             scaler.scale(total_loss).backward()
@@ -540,6 +611,7 @@ def main() -> int:
             local_stats["ce_loss_sum"] += float(ce_loss.detach().cpu().item())
             local_stats["distill_loss_sum"] += float(distill_loss.detach().cpu().item())
             local_stats["dense_logit_loss_sum"] += float(dense_logit_loss.detach().cpu().item())
+            local_stats["text_align_loss_sum"] += float(text_align_loss.detach().cpu().item())
             local_stats["grad_norm_sum"] += float(grad_norm)
 
         epoch_stats = reduce_epoch_stats(
@@ -559,6 +631,7 @@ def main() -> int:
             "avg_ce_loss": float(epoch_stats["avg_ce_loss"]),
             "avg_distill_loss": float(epoch_stats["avg_distill_loss"]),
             "avg_dense_logit_loss": float(epoch_stats["avg_dense_logit_loss"]),
+            "avg_text_align_loss": float(epoch_stats["avg_text_align_loss"]),
             "avg_grad_norm": float(epoch_stats["avg_grad_norm"]),
         }
         epoch_logs.append(epoch_log)
@@ -566,7 +639,7 @@ def main() -> int:
         if main_process:
             logger.info(
                 (
-                    "epoch=%d | loss=%.6f | ce=%.6f | feature_distill=%.6f | dense_logit=%.6f | "
+                    "epoch=%d | loss=%.6f | ce=%.6f | feature_distill=%.6f | dense_logit=%.6f | text_align=%.6f | "
                     "points=%d | base_points=%d | feature_points=%d | dense_points=%d"
                 ),
                 epoch,
@@ -574,6 +647,7 @@ def main() -> int:
                 epoch_log["avg_ce_loss"],
                 epoch_log["avg_distill_loss"],
                 epoch_log["avg_dense_logit_loss"],
+                epoch_log["avg_text_align_loss"],
                 epoch_log["points"],
                 epoch_log["base_supervised_points"],
                 epoch_log["distill_points"],
@@ -628,6 +702,7 @@ def main() -> int:
             "sparse_base_channels": args.sparse_base_channels,
             "feature_dim": feature_dim,
             "dense_point_dir": str(Path(args.dense_point_dir).expanduser().resolve()),
+            "init_checkpoint": str(Path(args.init_checkpoint).expanduser().resolve()) if args.init_checkpoint else "",
             "load_dense_logits": load_dense_logits,
             "dense_temperature": args.dense_temperature,
             "num_output_classes": num_output_classes,
@@ -640,6 +715,15 @@ def main() -> int:
                 "ce_weight": args.ce_weight,
                 "distill_weight": args.distill_weight,
                 "dense_logit_weight": args.dense_logit_weight,
+                "text_align_weight": args.text_align_weight,
+            },
+            "text_alignment": {
+                "enabled": use_text_align,
+                "text_model_name": args.text_model_name,
+                "text_prompt_template": args.text_prompt_template,
+                "cache_dir": args.cache_dir or "",
+                "local_files_only": args.local_files_only,
+                "num_text_prototypes": int(base_text_prototypes.shape[0]) if base_text_prototypes is not None else 0,
             },
             "epoch_logs": epoch_logs,
             "latest_checkpoint": str(latest_path),

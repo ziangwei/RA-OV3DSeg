@@ -49,3 +49,27 @@ def dense_logit_distillation_loss(
     point_kl = F.kl_div(student_log_probs, teacher_probs, reduction="none").sum(dim=-1) * (temp * temp)
     valid_weights = weights[valid].float()
     return torch.sum(point_kl * valid_weights) / torch.clamp(valid_weights.sum(), min=eps)
+
+
+def text_prototype_alignment_loss(
+    student_features: torch.Tensor,
+    train_labels: torch.Tensor,
+    text_prototypes: torch.Tensor,
+    valid_mask: torch.Tensor,
+    ignore_index: int = -100,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Supervised cosine loss that pulls point embeddings toward class text prototypes.
+
+    `train_labels` must index rows in `text_prototypes`. This should be applied only
+    to supervised base-class points, while novel/ignore labels stay `ignore_index`.
+    """
+
+    valid = valid_mask & (train_labels != ignore_index)
+    valid = valid & (train_labels >= 0) & (train_labels < text_prototypes.shape[0])
+    if not torch.any(valid):
+        return student_features.sum() * 0.0
+
+    student = F.normalize(student_features[valid], dim=-1, eps=eps)
+    target = F.normalize(text_prototypes[train_labels[valid]], dim=-1, eps=eps)
+    return (1.0 - torch.sum(student * target, dim=-1)).mean()

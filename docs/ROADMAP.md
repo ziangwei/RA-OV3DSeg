@@ -152,7 +152,20 @@ V10 implementation status:
 - Closed-set classifier logits are no longer used for V10 prediction; they remain
   an auxiliary training scaffold.
 
-After V10, teacher upgrade should focus on improving text-aligned dense teacher
+V11 addresses the main V10 failure mode:
+
+```text
+V9 checkpoint
+  -> supervised base-class text prototype alignment loss
+  -> text-aligned 3D point embeddings
+  -> V10-style arbitrary text inference/eval
+```
+
+V11 is still not the final teacher upgrade. It is a controlled check that the
+3D embedding head can be pulled into the same CLIP/SigLIP text space before
+replacing the 2D teacher with OpenSeg or another dense open-vocabulary model.
+
+After V11, teacher upgrade should focus on improving text-aligned dense teacher
 quality, not on adding new datasets.
 
 `openseg_dense` remains the preferred final dense teacher direction once a stable
