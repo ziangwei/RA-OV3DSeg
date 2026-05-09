@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
 
 from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
-from ra_ov3dseg.models.external_dense_teacher import dense_logits_to_nchw, scalar_to_str  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +48,36 @@ def softmax_np(logits: np.ndarray, axis: int = -1) -> np.ndarray:
     logits = logits - np.max(logits, axis=axis, keepdims=True)
     exp = np.exp(logits)
     return exp / np.clip(np.sum(exp, axis=axis, keepdims=True), 1e-6, None)
+
+
+def scalar_to_str(value, default: str = "") -> str:
+    if value is None:
+        return default
+    array = np.asarray(value)
+    if array.shape == ():
+        return str(array.item())
+    if array.size == 1:
+        return str(array.reshape(-1)[0])
+    return str(value)
+
+
+def dense_logits_to_nchw(dense_logits: np.ndarray, num_classes: int) -> tuple[np.ndarray, str]:
+    """Return dense logits as (camera, class, height, width).
+
+    Different HF dense teachers can naturally emit either NCHW or NHWC maps.
+    The rest of this project uses NCHW so point sampling is backend-agnostic.
+    """
+
+    if dense_logits.ndim != 4:
+        raise ValueError(f"dense_logits must be 4D, got shape={dense_logits.shape}")
+    if dense_logits.shape[1] == num_classes:
+        return dense_logits, "nchw"
+    if dense_logits.shape[-1] == num_classes:
+        return np.transpose(dense_logits, (0, 3, 1, 2)), "nhwc"
+    raise ValueError(
+        "Cannot infer dense logit layout. Expected class dimension at axis 1 "
+        f"or axis -1, got shape={dense_logits.shape}, num_classes={num_classes}"
+    )
 
 
 def build_jobs(args) -> list[tuple[int, Path, Path]]:
@@ -208,7 +237,7 @@ def main() -> int:
             teacher_backend=(
                 dense_teacher["teacher_backend"]
                 if "teacher_backend" in dense_teacher
-                else np.array("external_dense_logits")
+                else np.array("unknown_dense_teacher")
             ),
             teacher_role=dense_teacher["teacher_role"] if "teacher_role" in dense_teacher else np.array("unknown"),
             teacher_feature_granularity=(
@@ -216,7 +245,7 @@ def main() -> int:
                 if "teacher_feature_granularity" in dense_teacher
                 else np.array("dense_class_logits")
             ),
-            model_name=dense_teacher["model_name"] if "model_name" in dense_teacher else np.array("external"),
+            model_name=dense_teacher["model_name"] if "model_name" in dense_teacher else np.array("unknown"),
             class_names=dense_teacher["class_names"],
             prompts=dense_teacher["prompts"] if "prompts" in dense_teacher else dense_teacher["class_names"],
             aggregation=np.array(args.aggregation),
@@ -230,8 +259,8 @@ def main() -> int:
         summary = {
             "sample_idx": sample_idx,
             "sample_token": str(projection["sample_token"].item()),
-            "teacher_backend": scalar_to_str(dense_teacher.get("teacher_backend"), default="external_dense_logits"),
-            "model_name": scalar_to_str(dense_teacher.get("model_name"), default="external"),
+            "teacher_backend": scalar_to_str(dense_teacher.get("teacher_backend"), default="unknown_dense_teacher"),
+            "model_name": scalar_to_str(dense_teacher.get("model_name"), default="unknown"),
             "dense_logit_layout": scalar_to_str(assignment["dense_logit_layout"]),
             "aggregation": args.aggregation,
             "num_points": int(assignment["point_xyz"].shape[0]),

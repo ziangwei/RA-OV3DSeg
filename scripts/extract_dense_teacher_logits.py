@@ -12,7 +12,8 @@ if str(ROOT) not in sys.path:
 
 from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset  # noqa: E402
 from ra_ov3dseg.models.clipseg_dense_teacher import CLIPSegDenseTeacher  # noqa: E402
-from ra_ov3dseg.models.teacher_registry import CLIPSEG_DENSE, describe_teacher  # noqa: E402
+from ra_ov3dseg.models.groupvit_dense_teacher import GroupViTDenseTeacher  # noqa: E402
+from ra_ov3dseg.models.teacher_registry import CLIPSEG_DENSE, GROUPVIT_DENSE, describe_teacher  # noqa: E402
 from ra_ov3dseg.utils.io import ensure_dir, is_valid_npz, load_text_lines, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
@@ -24,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int)
     parser.add_argument("--start_idx", default=0, type=int)
     parser.add_argument("--max_samples", default=1, type=int)
-    parser.add_argument("--teacher_backend", default=CLIPSEG_DENSE, choices=[CLIPSEG_DENSE])
+    parser.add_argument("--teacher_backend", default=CLIPSEG_DENSE, choices=[CLIPSEG_DENSE, GROUPVIT_DENSE])
     parser.add_argument("--model_name", default="CIDAS/clipseg-rd64-refined", type=str)
     parser.add_argument("--cache_dir", default=None, type=str)
     parser.add_argument("--local_files_only", action="store_true")
@@ -32,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
     parser.add_argument("--prompt_template", default="a {} in a driving scene", type=str)
     parser.add_argument("--prompt_batch_size", default=8, type=int)
+    parser.add_argument("--logit_height", default=0, type=int, help="Optional saved dense logit height. <=0 keeps teacher size.")
+    parser.add_argument("--logit_width", default=0, type=int, help="Optional saved dense logit width. <=0 keeps teacher size.")
     parser.add_argument("--logit_dtype", default="float16", choices=["float16", "float32"])
     parser.add_argument("--output_dir", default="outputs/dense_teacher_logits", type=str)
     parser.add_argument("--skip_existing", action="store_true")
@@ -52,12 +55,24 @@ def main() -> int:
         raise ValueError("class_names_path is empty.")
     output_dir = ensure_dir(args.output_dir)
     teacher_spec = describe_teacher(args.teacher_backend)
-    teacher = CLIPSegDenseTeacher(
-        model_name=args.model_name,
-        device=args.device,
-        cache_dir=args.cache_dir,
-        local_files_only=args.local_files_only,
-    )
+    if args.teacher_backend == CLIPSEG_DENSE:
+        teacher = CLIPSegDenseTeacher(
+            model_name=args.model_name,
+            device=args.device,
+            cache_dir=args.cache_dir,
+            local_files_only=args.local_files_only,
+        )
+    elif args.teacher_backend == GROUPVIT_DENSE:
+        teacher = GroupViTDenseTeacher(
+            model_name=args.model_name,
+            device=args.device,
+            cache_dir=args.cache_dir,
+            local_files_only=args.local_files_only,
+            output_height=args.logit_height,
+            output_width=args.logit_width,
+        )
+    else:
+        raise ValueError(f"Unsupported dense teacher backend: {args.teacher_backend}")
     logit_dtype = np.float16 if args.logit_dtype == "float16" else np.float32
 
     batch_summary = {

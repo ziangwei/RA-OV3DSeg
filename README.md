@@ -12,16 +12,13 @@ The closed-set classifier used in the MVP is only an auxiliary training/evaluati
 - `base_classifier_head`: auxiliary head for base-class CE loss during training.
 - `dense_logit_head/distillation`: optional teacher supervision for known prompt sets, not the final open-vocabulary interface.
 
-CLIP/SigLIP patch features are treated as an MVP baseline only, not as the final 2D teacher. The intended mainline is a dense open-vocabulary 2D teacher, such as `openseg_dense`, that provides pixel-level semantic features or logits for projected LiDAR points.
+CLIP/SigLIP patch features are treated as an MVP baseline only, not as the final 2D teacher. The intended mainline is a dense open-vocabulary 2D teacher that runs inside this repository through Hugging Face Transformers. V12 uses `groupvit_dense` to provide pixel-level class logits for projected LiDAR points.
 
 Teacher registry:
 
 - `clip_patch_baseline`: runnable smoke-test baseline.
 - `clipseg_dense`: runnable dense-logit baseline.
-- `catseg_dense`: external dense open-vocabulary teacher target.
-- `external_dense_logits`: generic external dense teacher npz adapter.
-- `openseg_dense`: planned main dense teacher.
-- `grounded_sam_mask`: planned high-quality mask pseudo-label teacher.
+- `groupvit_dense`: recommended V12 dense open-vocabulary teacher; runs in the RA-OV3DSeg environment.
 
 3D backbone registry:
 

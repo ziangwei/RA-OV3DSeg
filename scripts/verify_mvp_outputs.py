@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
             "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
             "v9 mini experiment protocol, v10 open-vocabulary inference/eval, "
             "v11 text-aligned 3D embedding training/eval, "
-            "v12 external dense teacher training/eval."
+            "v12 GroupViT dense teacher training/eval."
         ),
     )
     parser.add_argument(
@@ -951,7 +951,7 @@ def verify_mini_experiment_v9(outputs_dir: Path, args, checks: list[dict[str, An
 
 def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
     if args.stage == "v12":
-        default_experiment_name = "trainval_v12_external_teacher_128"
+        default_experiment_name = "trainval_v12_groupvit_128"
     elif args.stage == "v11":
         default_experiment_name = "trainval_v11_text_align_128"
     else:
@@ -1073,7 +1073,7 @@ def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]])
 
 def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
     default_experiment_name = (
-        "trainval_v12_external_teacher_128" if args.stage == "v12" else "trainval_v11_text_align_128"
+        "trainval_v12_groupvit_128" if args.stage == "v12" else "trainval_v11_text_align_128"
     )
     experiment_dir = (
         Path(args.experiment_dir)
@@ -1133,26 +1133,56 @@ def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[
     )
 
 
-def verify_external_dense_teacher_v12(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+def verify_groupvit_dense_teacher_v12(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
     experiment_dir = (
         Path(args.experiment_dir)
         if args.experiment_dir is not None
-        else outputs_dir / "experiments" / "trainval_v12_external_teacher_128"
+        else outputs_dir / "experiments" / "trainval_v12_groupvit_128"
     )
-    check_summary = experiment_dir / "external_teacher_check" / "external_dense_teacher_check_summary.json"
+    dense_teacher_dir = experiment_dir / "precompute" / "dense_teacher_logits"
+    dense_teacher_files = sorted(dense_teacher_dir.glob("sample_*_dense_teacher_logits.npz"))
+    dense_teacher_summary = dense_teacher_dir / "batch_dense_teacher_logits_summary.json"
     dense_point_dir = experiment_dir / "precompute" / "dense_point_logits"
     dense_point_files = sorted(dense_point_dir.glob("sample_*_dense_point_logits.npz"))
     dense_point_summary = dense_point_dir / "batch_dense_point_logits_summary.json"
 
-    if check_file(check_summary, checks, "v12_external_teacher_check_summary_json", required=False):
-        summary = load_json(check_summary)
-        add_check(
-            checks,
-            "v12_external_teacher_check_status",
-            summary.get("status") == "pass",
-            f"status={summary.get('status')}, failed={summary.get('num_failed')}",
-            summary,
-        )
+    check_file(dense_teacher_dir, checks, "v12_dense_teacher_dir")
+    add_check(
+        checks,
+        "v12_dense_teacher_files",
+        len(dense_teacher_files) > 0,
+        f"num_dense_teacher_files={len(dense_teacher_files)}",
+    )
+    check_file(dense_teacher_summary, checks, "v12_dense_teacher_batch_summary_json", required=False)
+    if dense_teacher_files:
+        dense_teacher = load_npz(dense_teacher_files[0])
+        required = ["dense_logits", "class_names", "camera_names", "camera_available", "teacher_backend"]
+        missing = [key for key in required if key not in dense_teacher]
+        add_check(checks, "v12_dense_teacher_required_keys", not missing, f"missing_keys={missing}", missing)
+        if not missing:
+            dense_logits = dense_teacher["dense_logits"]
+            class_names = dense_teacher["class_names"]
+            camera_names = dense_teacher["camera_names"]
+            teacher_backend = str(dense_teacher["teacher_backend"].item())
+            class_axis_ok = dense_logits.ndim == 4 and (
+                dense_logits.shape[1] >= args.expected_num_classes
+                or dense_logits.shape[-1] >= args.expected_num_classes
+            )
+            add_check(
+                checks,
+                "v12_dense_teacher_shapes",
+                dense_logits.ndim == 4 and camera_names.shape[0] == dense_logits.shape[0] and class_axis_ok,
+                (
+                    f"dense_logits={dense_logits.shape}, camera_names={camera_names.shape}, "
+                    f"classes={class_names.shape}, teacher_backend={teacher_backend}"
+                ),
+            )
+            add_check(
+                checks,
+                "v12_dense_teacher_backend",
+                teacher_backend == "groupvit_dense",
+                f"teacher_backend={teacher_backend}",
+            )
 
     check_file(dense_point_dir, checks, "v12_dense_point_dir")
     add_check(
@@ -1221,7 +1251,7 @@ def main() -> int:
         verify_text_aligned_training_v11(outputs_dir, args, checks)
         verify_open_vocab_v10(outputs_dir, args, checks)
     if args.stage == "v12":
-        verify_external_dense_teacher_v12(outputs_dir, args, checks)
+        verify_groupvit_dense_teacher_v12(outputs_dir, args, checks)
         verify_text_aligned_training_v11(outputs_dir, args, checks)
         verify_open_vocab_v10(outputs_dir, args, checks)
 

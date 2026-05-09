@@ -163,28 +163,26 @@ V9 checkpoint
 
 V11 is still not the final teacher upgrade. It is a controlled check that the
 3D embedding head can be pulled into the same CLIP/SigLIP text space before
-replacing the 2D teacher with OpenSeg or another dense open-vocabulary model.
+replacing the patch teacher with a dense open-vocabulary model.
 
 After V11, teacher upgrade should focus on improving text-aligned dense teacher
 quality, not on adding new datasets.
 
-`openseg_dense` remains the preferred final dense teacher direction once a stable
-checkpoint and dependency path are selected.
+`groupvit_dense` is the current dense teacher direction because it runs through
+the same RA-OV3DSeg environment and Hugging Face cache.
 
-V12 introduces the external dense-teacher interface:
+V12 introduces a Transformers-native dense teacher first:
 
 ```text
-nuScenes camera manifest
-  -> external CAT-Seg/OpenSeg environment
-  -> canonical per-camera dense logits npz
+nuScenes camera images
+  -> GroupViT zero-shot dense segmentation
   -> projected point-level teacher logits
   -> sparse 3D student with reliability + text alignment
   -> open-vocabulary point embedding inference
 ```
 
-This keeps heavy 2D teacher dependencies out of the 3D training environment and
-lets the project compare CAT-Seg, OpenSeg, or other dense teachers through the
-same `.npz` contract.
+This keeps the workflow inside the existing RA-OV3DSeg repository and conda
+environment.
 
 The final experiments should compare:
 

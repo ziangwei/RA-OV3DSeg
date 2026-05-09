@@ -9,10 +9,8 @@ CACHE_DIR="/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache"
 OUTPUTS_DIR="${PROJECT_ROOT}/outputs"
 SOURCE_EXPERIMENT_NAME="trainval_v9_128_isolated"
 INIT_EXPERIMENT_NAME="trainval_v11_text_align_128"
-EXPERIMENT_NAME="trainval_v12_external_teacher_128"
-EXTERNAL_TEACHER_BACKEND="catseg_dense"
-EXTERNAL_TEACHER_MODEL_NAME="catseg_external"
-EXTERNAL_DENSE_TEACHER_DIR=""
+EXPERIMENT_NAME="trainval_v12_groupvit_128"
+GROUPVIT_MODEL_NAME="nvidia/groupvit-gcc-yfcc"
 INIT_CHECKPOINT=""
 USE_INIT_CHECKPOINT=1
 PROJECTION_DIR=""
@@ -35,14 +33,15 @@ DISTILL_WEIGHT=1.0
 DENSE_LOGIT_WEIGHT=1.0
 TEXT_MODEL_NAME="openai/clip-vit-base-patch16"
 TEXT_PROMPT_TEMPLATE="a {} in a driving scene"
+GROUPVIT_PROMPT_TEMPLATE="a {} in a driving scene"
+LOGIT_HEIGHT=180
+LOGIT_WIDTH=320
 DEVICE="cuda"
 NPROC_PER_NODE=1
 LOCAL_FILES_ONLY=0
 AMP=1
 SKIP_EXISTING=1
-SKIP_MANIFEST=0
-MANIFEST_ONLY=0
-SKIP_EXTERNAL_CHECK=0
+SKIP_DENSE_EXTRACT=0
 SKIP_ASSIGN=0
 SKIP_TRAIN=0
 SKIP_PREDICT=0
@@ -50,22 +49,21 @@ SKIP_EVAL=0
 
 usage() {
   cat <<'EOF'
-Run V12 training with an external dense open-vocabulary teacher.
+Run V12 with a Transformers-native GroupViT dense open-vocabulary teacher.
 
-This script does not run CAT-Seg/OpenSeg itself. It expects canonical external
-dense teacher npz files:
-
-  <external_dense_teacher_dir>/sample_XXXX_dense_teacher_logits.npz
-
-Use --manifest_only first to produce the image/class manifest for the external
-teacher environment.
+This is the recommended V12 path for the current project:
+  - one RA-OV3DSeg conda environment
+  - one Hugging Face model cache
+  - no second repository or teacher environment
 
 Examples:
-  bash scripts/run_v12_external_teacher_training.sh --manifest_only
+  bash scripts/run_v12_groupvit_teacher_training.sh --local_files_only
 
-  bash scripts/run_v12_external_teacher_training.sh \
-    --external_dense_teacher_dir outputs/external_teachers/catseg_dense \
-    --local_files_only
+  bash scripts/run_v12_groupvit_teacher_training.sh \
+    --experiment_name trainval_v12_groupvit_smoke \
+    --train_max_samples 8 \
+    --eval_max_samples 8 \
+    --epochs 2
 
 Options:
   --dataroot PATH
@@ -74,9 +72,7 @@ Options:
   --source_experiment_name NAME
   --init_experiment_name NAME
   --experiment_name NAME
-  --external_teacher_backend NAME
-  --external_teacher_model_name NAME
-  --external_dense_teacher_dir PATH
+  --groupvit_model_name NAME
   --init_checkpoint PATH
   --no_init_checkpoint
   --projection_dir PATH
@@ -99,14 +95,15 @@ Options:
   --dense_logit_weight W
   --text_model_name NAME
   --text_prompt_template TEMPLATE
+  --groupvit_prompt_template TEMPLATE
+  --logit_height N
+  --logit_width N
   --device auto|cpu|cuda
   --nproc_per_node N
   --local_files_only
   --no_amp
   --no_skip_existing
-  --skip_manifest
-  --manifest_only
-  --skip_external_check
+  --skip_dense_extract
   --skip_assign
   --skip_train
   --skip_predict
@@ -145,16 +142,8 @@ while [[ $# -gt 0 ]]; do
       EXPERIMENT_NAME="$2"
       shift 2
       ;;
-    --external_teacher_backend)
-      EXTERNAL_TEACHER_BACKEND="$2"
-      shift 2
-      ;;
-    --external_teacher_model_name)
-      EXTERNAL_TEACHER_MODEL_NAME="$2"
-      shift 2
-      ;;
-    --external_dense_teacher_dir)
-      EXTERNAL_DENSE_TEACHER_DIR="$2"
+    --groupvit_model_name)
+      GROUPVIT_MODEL_NAME="$2"
       shift 2
       ;;
     --init_checkpoint)
@@ -246,6 +235,18 @@ while [[ $# -gt 0 ]]; do
       TEXT_PROMPT_TEMPLATE="$2"
       shift 2
       ;;
+    --groupvit_prompt_template)
+      GROUPVIT_PROMPT_TEMPLATE="$2"
+      shift 2
+      ;;
+    --logit_height)
+      LOGIT_HEIGHT="$2"
+      shift 2
+      ;;
+    --logit_width)
+      LOGIT_WIDTH="$2"
+      shift 2
+      ;;
     --device)
       DEVICE="$2"
       shift 2
@@ -266,16 +267,8 @@ while [[ $# -gt 0 ]]; do
       SKIP_EXISTING=0
       shift
       ;;
-    --skip_manifest)
-      SKIP_MANIFEST=1
-      shift
-      ;;
-    --manifest_only)
-      MANIFEST_ONLY=1
-      shift
-      ;;
-    --skip_external_check)
-      SKIP_EXTERNAL_CHECK=1
+    --skip_dense_extract)
+      SKIP_DENSE_EXTRACT=1
       shift
       ;;
     --skip_assign)
@@ -309,18 +302,14 @@ done
 SOURCE_EXPERIMENT_DIR="${OUTPUTS_DIR}/experiments/${SOURCE_EXPERIMENT_NAME}"
 INIT_EXPERIMENT_DIR="${OUTPUTS_DIR}/experiments/${INIT_EXPERIMENT_NAME}"
 EXPERIMENT_DIR="${OUTPUTS_DIR}/experiments/${EXPERIMENT_NAME}"
-MANIFEST_DIR="${EXPERIMENT_DIR}/external_teacher_manifest"
-CHECK_DIR="${EXPERIMENT_DIR}/external_teacher_check"
 PRECOMPUTE_DIR="${EXPERIMENT_DIR}/precompute"
+DENSE_TEACHER_DIR="${PRECOMPUTE_DIR}/dense_teacher_logits"
 DENSE_POINT_DIR="${PRECOMPUTE_DIR}/dense_point_logits"
 TRAINING_DIR="${EXPERIMENT_DIR}/training"
 PREDICTION_DIR="${EXPERIMENT_DIR}/open_vocab_predictions3d"
 EVALUATION_DIR="${EXPERIMENT_DIR}/open_vocab_evaluation3d"
 LOG_DIR="${OUTPUTS_DIR}/logs"
 
-if [[ -z "${EXTERNAL_DENSE_TEACHER_DIR}" ]]; then
-  EXTERNAL_DENSE_TEACHER_DIR="${OUTPUTS_DIR}/external_teachers/${EXTERNAL_TEACHER_BACKEND}"
-fi
 if [[ -z "${INIT_CHECKPOINT}" ]]; then
   INIT_CHECKPOINT="${INIT_EXPERIMENT_DIR}/training/sparse_unet_spconv_latest.pt"
 fi
@@ -334,7 +323,7 @@ if [[ -z "${RELIABILITY_DIR}" ]]; then
   RELIABILITY_DIR="${SOURCE_EXPERIMENT_DIR}/precompute/reliability"
 fi
 
-mkdir -p "${MANIFEST_DIR}" "${CHECK_DIR}" "${DENSE_POINT_DIR}" "${TRAINING_DIR}" "${PREDICTION_DIR}" "${EVALUATION_DIR}" "${LOG_DIR}"
+mkdir -p "${DENSE_TEACHER_DIR}" "${DENSE_POINT_DIR}" "${TRAINING_DIR}" "${PREDICTION_DIR}" "${EVALUATION_DIR}" "${LOG_DIR}"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/v12_${EXPERIMENT_NAME}_${TIMESTAMP}.log"
@@ -358,37 +347,36 @@ run_step() {
   echo "[INFO] ========== STEP DONE: ${step_name} ==========" | tee -a "${LOG_FILE}"
 }
 
-MANIFEST_COMMAND=(
-  python "${PROJECT_ROOT}/scripts/build_external_teacher_manifest.py"
+DENSE_EXTRACT_COMMAND=(
+  python "${PROJECT_ROOT}/scripts/extract_dense_teacher_logits.py"
   --dataroot "${DATAROOT}"
   --version v1.0-trainval
   --start_idx "${TRAIN_START_IDX}"
   --max_samples "${TRAIN_MAX_SAMPLES}"
-  --teacher_backend "${EXTERNAL_TEACHER_BACKEND}"
-  --model_name "${EXTERNAL_TEACHER_MODEL_NAME}"
+  --teacher_backend groupvit_dense
+  --model_name "${GROUPVIT_MODEL_NAME}"
+  --cache_dir "${CACHE_DIR}"
+  --device "${DEVICE}"
   --class_names_path "${PROJECT_ROOT}/configs/nuscenes_lidarseg_class_names.txt"
-  --prompt_template "${TEXT_PROMPT_TEMPLATE}"
-  --dense_teacher_dir "${EXTERNAL_DENSE_TEACHER_DIR}"
-  --output_dir "${MANIFEST_DIR}"
-  --output_name "train_${TRAIN_START_IDX}_${TRAIN_MAX_SAMPLES}"
+  --prompt_template "${GROUPVIT_PROMPT_TEMPLATE}"
+  --logit_height "${LOGIT_HEIGHT}"
+  --logit_width "${LOGIT_WIDTH}"
+  --logit_dtype float16
+  --output_dir "${DENSE_TEACHER_DIR}"
 )
-
-CHECK_COMMAND=(
-  python "${PROJECT_ROOT}/scripts/check_external_dense_teacher_logits.py"
-  --start_idx "${TRAIN_START_IDX}"
-  --max_samples "${TRAIN_MAX_SAMPLES}"
-  --dense_teacher_dir "${EXTERNAL_DENSE_TEACHER_DIR}"
-  --projection_dir "${PROJECTION_DIR}"
-  --class_names_path "${PROJECT_ROOT}/configs/nuscenes_lidarseg_class_names.txt"
-  --output_dir "${CHECK_DIR}"
-)
+if [[ "${LOCAL_FILES_ONLY}" == "1" ]]; then
+  DENSE_EXTRACT_COMMAND+=(--local_files_only)
+fi
+if [[ "${SKIP_EXISTING}" == "1" ]]; then
+  DENSE_EXTRACT_COMMAND+=(--skip_existing)
+fi
 
 ASSIGN_COMMAND=(
   python "${PROJECT_ROOT}/scripts/assign_dense_logits_to_points.py"
   --start_idx "${TRAIN_START_IDX}"
   --max_samples "${TRAIN_MAX_SAMPLES}"
   --projection_dir "${PROJECTION_DIR}"
-  --dense_teacher_dir "${EXTERNAL_DENSE_TEACHER_DIR}"
+  --dense_teacher_dir "${DENSE_TEACHER_DIR}"
   --output_dir "${DENSE_POINT_DIR}"
 )
 if [[ "${SKIP_EXISTING}" == "1" ]]; then
@@ -476,13 +464,12 @@ if [[ "${SKIP_EXISTING}" == "1" ]]; then
 fi
 
 {
-  echo "[INFO] V12 launcher started at $(date -Is)"
+  echo "[INFO] V12 GroupViT launcher started at $(date -Is)"
   echo "[INFO] project_root=${PROJECT_ROOT}"
   echo "[INFO] source_experiment_dir=${SOURCE_EXPERIMENT_DIR}"
   echo "[INFO] init_checkpoint=${INIT_CHECKPOINT}"
   echo "[INFO] experiment_dir=${EXPERIMENT_DIR}"
-  echo "[INFO] external_dense_teacher_dir=${EXTERNAL_DENSE_TEACHER_DIR}"
-  echo "[INFO] external_teacher_backend=${EXTERNAL_TEACHER_BACKEND}"
+  echo "[INFO] groupvit_model_name=${GROUPVIT_MODEL_NAME}"
   echo "[INFO] train_range=start:${TRAIN_START_IDX} max:${TRAIN_MAX_SAMPLES}"
   echo "[INFO] eval_range=start:${EVAL_START_IDX} max:${EVAL_MAX_SAMPLES}"
   echo "[INFO] log_file=${LOG_FILE}"
@@ -492,24 +479,7 @@ fi
   nvidia-smi || true
 } 2>&1 | tee "${LOG_FILE}"
 
-if [[ "${SKIP_MANIFEST}" != "1" ]]; then
-  run_step "build_external_teacher_manifest" "${MANIFEST_COMMAND[@]}"
-fi
-
-if [[ "${MANIFEST_ONLY}" == "1" ]]; then
-  {
-    echo "[INFO] manifest_only=1; stop before external teacher validation/training."
-    echo "[INFO] Run the external teacher and write files to: ${EXTERNAL_DENSE_TEACHER_DIR}"
-    echo "[INFO] V12 launcher finished at $(date -Is)"
-    echo "[INFO] exit_status=0"
-    echo "[INFO] log_file=${LOG_FILE}"
-    echo "[INFO] latest_log=${LATEST_LOG}"
-  } 2>&1 | tee -a "${LOG_FILE}"
-  ln -sfn "$(basename "${LOG_FILE}")" "${LATEST_LOG}"
-  exit 0
-fi
-
-for required_dir in "${PROJECTION_DIR}" "${POINT_FEATURE_DIR}" "${RELIABILITY_DIR}" "${EXTERNAL_DENSE_TEACHER_DIR}"; do
+for required_dir in "${PROJECTION_DIR}" "${POINT_FEATURE_DIR}" "${RELIABILITY_DIR}"; do
   if [[ ! -d "${required_dir}" ]]; then
     echo "[ERROR] required directory not found: ${required_dir}" | tee -a "${LOG_FILE}" >&2
     exit 1
@@ -520,24 +490,24 @@ if [[ "${USE_INIT_CHECKPOINT}" == "1" && ! -f "${INIT_CHECKPOINT}" ]]; then
   exit 1
 fi
 
-if [[ "${SKIP_EXTERNAL_CHECK}" != "1" ]]; then
-  run_step "check_external_dense_teacher_logits" "${CHECK_COMMAND[@]}"
+if [[ "${SKIP_DENSE_EXTRACT}" != "1" ]]; then
+  run_step "extract_groupvit_dense_teacher_logits" "${DENSE_EXTRACT_COMMAND[@]}"
 fi
 if [[ "${SKIP_ASSIGN}" != "1" ]]; then
-  run_step "assign_external_dense_logits_to_points" "${ASSIGN_COMMAND[@]}"
+  run_step "assign_groupvit_dense_logits_to_points" "${ASSIGN_COMMAND[@]}"
 fi
 if [[ "${SKIP_TRAIN}" != "1" ]]; then
-  run_step "train_v12_external_teacher" "${TRAIN_COMMAND[@]}"
+  run_step "train_v12_groupvit" "${TRAIN_COMMAND[@]}"
 fi
 if [[ "${SKIP_PREDICT}" != "1" ]]; then
-  run_step "predict_v12_open_vocab" "${PREDICT_COMMAND[@]}"
+  run_step "predict_v12_groupvit_open_vocab" "${PREDICT_COMMAND[@]}"
 fi
 if [[ "${SKIP_EVAL}" != "1" ]]; then
-  run_step "eval_v12_open_vocab" "${EVAL_COMMAND[@]}"
+  run_step "eval_v12_groupvit_open_vocab" "${EVAL_COMMAND[@]}"
 fi
 
 {
-  echo "[INFO] V12 launcher finished at $(date -Is)"
+  echo "[INFO] V12 GroupViT launcher finished at $(date -Is)"
   echo "[INFO] exit_status=0"
   echo "[INFO] log_file=${LOG_FILE}"
   echo "[INFO] latest_log=${LATEST_LOG}"

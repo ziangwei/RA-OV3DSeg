@@ -1,7 +1,7 @@
 """Model builders and lightweight MVP modules.
 
 The package entrypoint uses lazy imports so metadata-only tools, such as teacher
-backend checks and external teacher manifest generation, do not require PyTorch.
+backend checks, do not require PyTorch.
 """
 
 from importlib import import_module
@@ -14,10 +14,7 @@ __all__ = [
     "describe_backbone",
     "CLIP_PATCH_BASELINE",
     "CLIPSEG_DENSE",
-    "CATSEG_DENSE",
-    "EXTERNAL_DENSE_LOGITS",
-    "OPENSEG_DENSE",
-    "GROUNDED_SAM_MASK",
+    "GROUPVIT_DENSE",
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",
@@ -35,10 +32,7 @@ _SEGMENTOR_EXPORTS = {
 _TEACHER_EXPORTS = {
     "CLIP_PATCH_BASELINE",
     "CLIPSEG_DENSE",
-    "CATSEG_DENSE",
-    "EXTERNAL_DENSE_LOGITS",
-    "OPENSEG_DENSE",
-    "GROUNDED_SAM_MASK",
+    "GROUPVIT_DENSE",
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",

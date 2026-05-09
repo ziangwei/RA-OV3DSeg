@@ -195,71 +195,46 @@ If the first run needs to download the CLIP text model, omit
 `--local_files_only`. After the model is cached, add `--local_files_only` for
 stable offline reruns.
 
-## V12 External Dense Teacher
+## V12 GroupViT Dense Teacher
 
-V12 does not run CAT-Seg/OpenSeg inside this repository. The external teacher
-should run in its own environment and export canonical dense logits:
+The recommended V12 path uses `groupvit_dense`, which is available through
+Hugging Face Transformers and runs in the existing `ra-ov3dseg` environment.
+It does not require a second repository or a second conda environment.
 
-```text
-outputs/external_teachers/catseg_dense/
-  sample_0000_dense_teacher_logits.npz
-  sample_0001_dense_teacher_logits.npz
-  ...
-```
-
-Required `.npz` keys:
-
-```text
-sample_idx
-sample_token
-teacher_backend
-model_name
-camera_names
-camera_available
-image_widths
-image_heights
-class_names
-prompts
-dense_logits
-```
-
-`dense_logits` may be either `(camera, class, height, width)` or
-`(camera, height, width, class)`. `class_names` must start with the 32
-nuScenes-lidarseg names in `configs/nuscenes_lidarseg_class_names.txt`.
-See `docs/EXTERNAL_DENSE_TEACHER_FORMAT.md` for the full contract.
-For a CAT-Seg-specific server workflow, see `docs/CATSEG_SERVER_EXPORT.md`.
-
-First produce the manifest for the external teacher environment:
+Default run:
 
 ```bash
-bash scripts/run_v12_external_teacher_training.sh --manifest_only
+bash scripts/run_v12_groupvit_teacher_training.sh --local_files_only
 ```
 
-The manifest is written to:
-
-```text
-outputs/experiments/trainval_v12_external_teacher_128/external_teacher_manifest/
-```
-
-After the external teacher has written the canonical logits, run V12:
+If the GroupViT model is not cached yet, omit `--local_files_only` for the first
+run:
 
 ```bash
-bash scripts/run_v12_external_teacher_training.sh \
-  --external_dense_teacher_dir outputs/external_teachers/catseg_dense \
-  --local_files_only
+bash scripts/run_v12_groupvit_teacher_training.sh
+```
+
+Smoke run:
+
+```bash
+bash scripts/run_v12_groupvit_teacher_training.sh \
+  --experiment_name trainval_v12_groupvit_smoke \
+  --train_max_samples 8 \
+  --eval_max_samples 8 \
+  --epochs 2
 ```
 
 This writes:
 
 ```text
-outputs/experiments/trainval_v12_external_teacher_128/
-  external_teacher_check/
+outputs/experiments/trainval_v12_groupvit_128/
+  precompute/dense_teacher_logits/
   precompute/dense_point_logits/
   training/
   open_vocab_predictions3d/
   open_vocab_evaluation3d/
-outputs/logs/v12_trainval_v12_external_teacher_128_<timestamp>.log
-outputs/logs/v12_trainval_v12_external_teacher_128_latest.log
+outputs/logs/v12_trainval_v12_groupvit_128_<timestamp>.log
+outputs/logs/v12_trainval_v12_groupvit_128_latest.log
 ```
 
 Verify:
@@ -269,6 +244,6 @@ python scripts/verify_mvp_outputs.py \
   --stage v12 \
   --sample_idx 128 \
   --outputs_dir outputs \
-  --experiment_dir outputs/experiments/trainval_v12_external_teacher_128 \
+  --experiment_dir outputs/experiments/trainval_v12_groupvit_128 \
   --output_dir outputs/verification
 ```

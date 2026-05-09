@@ -6,17 +6,11 @@ from pathlib import Path
 
 CLIP_PATCH_BASELINE = "clip_patch_baseline"
 CLIPSEG_DENSE = "clipseg_dense"
-CATSEG_DENSE = "catseg_dense"
-EXTERNAL_DENSE_LOGITS = "external_dense_logits"
-OPENSEG_DENSE = "openseg_dense"
-GROUNDED_SAM_MASK = "grounded_sam_mask"
+GROUPVIT_DENSE = "groupvit_dense"
 SUPPORTED_TEACHERS = (
     CLIP_PATCH_BASELINE,
     CLIPSEG_DENSE,
-    CATSEG_DENSE,
-    EXTERNAL_DENSE_LOGITS,
-    OPENSEG_DENSE,
-    GROUNDED_SAM_MASK,
+    GROUPVIT_DENSE,
 )
 
 
@@ -42,42 +36,6 @@ def describe_teacher(teacher_backend: str) -> TeacherSpec:
             ),
         )
 
-    if teacher_backend == OPENSEG_DENSE:
-        return TeacherSpec(
-            name=teacher_backend,
-            role="main_dense_teacher",
-            feature_granularity="dense_pixel",
-            is_baseline=False,
-            description=(
-                "Planned main teacher: dense open-vocabulary pixel-level features or logits. "
-                "This is the preferred route for point-level 2D-to-3D distillation."
-            ),
-        )
-
-    if teacher_backend == CATSEG_DENSE:
-        return TeacherSpec(
-            name=teacher_backend,
-            role="main_dense_teacher_candidate",
-            feature_granularity="dense_class_logits",
-            is_baseline=False,
-            description=(
-                "External CAT-Seg style dense open-vocabulary teacher. RA-OV3DSeg expects "
-                "precomputed per-camera dense class logits in the canonical external-teacher npz format."
-            ),
-        )
-
-    if teacher_backend == EXTERNAL_DENSE_LOGITS:
-        return TeacherSpec(
-            name=teacher_backend,
-            role="external_dense_teacher_adapter",
-            feature_granularity="dense_class_logits",
-            is_baseline=False,
-            description=(
-                "Generic external dense open-vocabulary teacher adapter. The teacher is run outside this "
-                "repository and exported as canonical per-camera dense logits."
-            ),
-        )
-
     if teacher_backend == CLIPSEG_DENSE:
         return TeacherSpec(
             name=teacher_backend,
@@ -87,20 +45,19 @@ def describe_teacher(teacher_backend: str) -> TeacherSpec:
             description=(
                 "Runnable dense open-vocabulary segmentation teacher based on CLIPSeg. "
                 "It produces per-class dense logits and is stronger than CLIP patch tokens, "
-                "but remains a practical baseline before an OpenSeg/OVSeg adapter is added."
+                "but remains a practical baseline before the GroupViT teacher."
             ),
         )
 
-    if teacher_backend == GROUNDED_SAM_MASK:
+    if teacher_backend == GROUPVIT_DENSE:
         return TeacherSpec(
             name=teacher_backend,
-            role="high_quality_mask_teacher",
-            feature_granularity="open_vocab_mask",
+            role="transformers_native_dense_teacher",
+            feature_granularity="dense_class_logits",
             is_baseline=False,
             description=(
-                "Planned mask-level teacher for higher-quality pseudo labels. It is heavier "
-                "than dense feature extraction and should be introduced after the sparse 3D "
-                "student is stable."
+                "Transformers-native GroupViT zero-shot semantic segmentation teacher. "
+                "It runs inside the RA-OV3DSeg environment through Hugging Face Transformers."
             ),
         )
 
@@ -116,9 +73,9 @@ def build_image_teacher(
 ):
     """Build an image teacher for 2D feature extraction.
 
-    `clip_patch_baseline` is the only runnable teacher in the current code. The
-    dense teacher names are registered now so configs and outputs no longer imply
-    that CLIP patch tokens are the final method.
+    `clip_patch_baseline` is used by the MVP feature-assignment path. Dense
+    teachers write class-logit maps and are handled by
+    `scripts/extract_dense_teacher_logits.py`.
     """
 
     if teacher_backend == CLIP_PATCH_BASELINE:
@@ -131,30 +88,16 @@ def build_image_teacher(
             local_files_only=local_files_only,
         )
 
-    if teacher_backend == OPENSEG_DENSE:
-        raise NotImplementedError(
-            "openseg_dense is the intended main dense teacher, but it is not implemented yet. "
-            "Use --teacher_backend clip_patch_baseline for MVP smoke tests, then add the "
-            "OpenSeg/OVSeg adapter in the dense-teacher stage."
-        )
-
     if teacher_backend == CLIPSEG_DENSE:
         raise NotImplementedError(
             "clipseg_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
             "instead of scripts/extract_2d_features.py."
         )
 
-    if teacher_backend in {CATSEG_DENSE, EXTERNAL_DENSE_LOGITS}:
+    if teacher_backend == GROUPVIT_DENSE:
         raise NotImplementedError(
-            f"{teacher_backend} is consumed from precomputed dense-logit npz files. "
-            "Use scripts/build_external_teacher_manifest.py to create the image manifest, run the "
-            "external teacher in its own environment, then use scripts/run_v12_external_teacher_training.sh."
-        )
-
-    if teacher_backend == GROUNDED_SAM_MASK:
-        raise NotImplementedError(
-            "grounded_sam_mask is reserved for a heavier mask pseudo-label pipeline. "
-            "It should not block the current sparse 3D student work."
+            "groupvit_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
+            "instead of scripts/extract_2d_features.py."
         )
 
     raise ValueError(f"Unknown teacher_backend={teacher_backend}. Supported: {SUPPORTED_TEACHERS}")
