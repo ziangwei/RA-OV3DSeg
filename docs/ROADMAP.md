@@ -171,6 +171,21 @@ quality, not on adding new datasets.
 `openseg_dense` remains the preferred final dense teacher direction once a stable
 checkpoint and dependency path are selected.
 
+V12 introduces the external dense-teacher interface:
+
+```text
+nuScenes camera manifest
+  -> external CAT-Seg/OpenSeg environment
+  -> canonical per-camera dense logits npz
+  -> projected point-level teacher logits
+  -> sparse 3D student with reliability + text alignment
+  -> open-vocabulary point embedding inference
+```
+
+This keeps heavy 2D teacher dependencies out of the 3D training environment and
+lets the project compare CAT-Seg, OpenSeg, or other dense teachers through the
+same `.npz` contract.
+
 The final experiments should compare:
 
 - CLIP patch baseline.

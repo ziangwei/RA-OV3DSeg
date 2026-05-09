@@ -6,9 +6,18 @@ from pathlib import Path
 
 CLIP_PATCH_BASELINE = "clip_patch_baseline"
 CLIPSEG_DENSE = "clipseg_dense"
+CATSEG_DENSE = "catseg_dense"
+EXTERNAL_DENSE_LOGITS = "external_dense_logits"
 OPENSEG_DENSE = "openseg_dense"
 GROUNDED_SAM_MASK = "grounded_sam_mask"
-SUPPORTED_TEACHERS = (CLIP_PATCH_BASELINE, CLIPSEG_DENSE, OPENSEG_DENSE, GROUNDED_SAM_MASK)
+SUPPORTED_TEACHERS = (
+    CLIP_PATCH_BASELINE,
+    CLIPSEG_DENSE,
+    CATSEG_DENSE,
+    EXTERNAL_DENSE_LOGITS,
+    OPENSEG_DENSE,
+    GROUNDED_SAM_MASK,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +51,30 @@ def describe_teacher(teacher_backend: str) -> TeacherSpec:
             description=(
                 "Planned main teacher: dense open-vocabulary pixel-level features or logits. "
                 "This is the preferred route for point-level 2D-to-3D distillation."
+            ),
+        )
+
+    if teacher_backend == CATSEG_DENSE:
+        return TeacherSpec(
+            name=teacher_backend,
+            role="main_dense_teacher_candidate",
+            feature_granularity="dense_class_logits",
+            is_baseline=False,
+            description=(
+                "External CAT-Seg style dense open-vocabulary teacher. RA-OV3DSeg expects "
+                "precomputed per-camera dense class logits in the canonical external-teacher npz format."
+            ),
+        )
+
+    if teacher_backend == EXTERNAL_DENSE_LOGITS:
+        return TeacherSpec(
+            name=teacher_backend,
+            role="external_dense_teacher_adapter",
+            feature_granularity="dense_class_logits",
+            is_baseline=False,
+            description=(
+                "Generic external dense open-vocabulary teacher adapter. The teacher is run outside this "
+                "repository and exported as canonical per-camera dense logits."
             ),
         )
 
@@ -109,6 +142,13 @@ def build_image_teacher(
         raise NotImplementedError(
             "clipseg_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
             "instead of scripts/extract_2d_features.py."
+        )
+
+    if teacher_backend in {CATSEG_DENSE, EXTERNAL_DENSE_LOGITS}:
+        raise NotImplementedError(
+            f"{teacher_backend} is consumed from precomputed dense-logit npz files. "
+            "Use scripts/build_external_teacher_manifest.py to create the image manifest, run the "
+            "external teacher in its own environment, then use scripts/run_v12_external_teacher_training.sh."
         )
 
     if teacher_backend == GROUNDED_SAM_MASK:

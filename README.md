@@ -17,6 +17,9 @@ CLIP/SigLIP patch features are treated as an MVP baseline only, not as the final
 Teacher registry:
 
 - `clip_patch_baseline`: runnable smoke-test baseline.
+- `clipseg_dense`: runnable dense-logit baseline.
+- `catseg_dense`: external dense open-vocabulary teacher target.
+- `external_dense_logits`: generic external dense teacher npz adapter.
 - `openseg_dense`: planned main dense teacher.
 - `grounded_sam_mask`: planned high-quality mask pseudo-label teacher.
 

@@ -194,3 +194,80 @@ bash scripts/run_v11_text_aligned_training.sh \
 If the first run needs to download the CLIP text model, omit
 `--local_files_only`. After the model is cached, add `--local_files_only` for
 stable offline reruns.
+
+## V12 External Dense Teacher
+
+V12 does not run CAT-Seg/OpenSeg inside this repository. The external teacher
+should run in its own environment and export canonical dense logits:
+
+```text
+outputs/external_teachers/catseg_dense/
+  sample_0000_dense_teacher_logits.npz
+  sample_0001_dense_teacher_logits.npz
+  ...
+```
+
+Required `.npz` keys:
+
+```text
+sample_idx
+sample_token
+teacher_backend
+model_name
+camera_names
+camera_available
+image_widths
+image_heights
+class_names
+prompts
+dense_logits
+```
+
+`dense_logits` may be either `(camera, class, height, width)` or
+`(camera, height, width, class)`. `class_names` must start with the 32
+nuScenes-lidarseg names in `configs/nuscenes_lidarseg_class_names.txt`.
+See `docs/EXTERNAL_DENSE_TEACHER_FORMAT.md` for the full contract.
+
+First produce the manifest for the external teacher environment:
+
+```bash
+bash scripts/run_v12_external_teacher_training.sh --manifest_only
+```
+
+The manifest is written to:
+
+```text
+outputs/experiments/trainval_v12_external_teacher_128/external_teacher_manifest/
+```
+
+After the external teacher has written the canonical logits, run V12:
+
+```bash
+bash scripts/run_v12_external_teacher_training.sh \
+  --external_dense_teacher_dir outputs/external_teachers/catseg_dense \
+  --local_files_only
+```
+
+This writes:
+
+```text
+outputs/experiments/trainval_v12_external_teacher_128/
+  external_teacher_check/
+  precompute/dense_point_logits/
+  training/
+  open_vocab_predictions3d/
+  open_vocab_evaluation3d/
+outputs/logs/v12_trainval_v12_external_teacher_128_<timestamp>.log
+outputs/logs/v12_trainval_v12_external_teacher_128_latest.log
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v12 \
+  --sample_idx 128 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v12_external_teacher_128 \
+  --output_dir outputs/verification
+```

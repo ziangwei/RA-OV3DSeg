@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
+from ra_ov3dseg.models.external_dense_teacher import dense_logits_to_nchw, scalar_to_str  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,7 +93,11 @@ def assign_logits(projection: dict[str, np.ndarray], dense_teacher: dict[str, np
     if camera_names != teacher_camera_names:
         raise ValueError("Camera order mismatch between projection and dense teacher logits.")
 
-    dense_logits = dense_teacher["dense_logits"].astype(np.float32)
+    class_names = [str(name) for name in dense_teacher["class_names"].tolist()]
+    dense_logits, dense_logit_layout = dense_logits_to_nchw(
+        dense_teacher["dense_logits"].astype(np.float32),
+        num_classes=len(class_names),
+    )
     camera_available = dense_teacher["camera_available"].astype(bool)
     image_widths = projection["image_widths"].astype(np.float32)
     image_heights = projection["image_heights"].astype(np.float32)
@@ -162,6 +167,7 @@ def assign_logits(projection: dict[str, np.ndarray], dense_teacher: dict[str, np
         "point_dense_pred_scores": pred_scores,
         "selected_camera_index": selected_camera_index.astype(np.int32),
         "camera_names": np.asarray(camera_names),
+        "dense_logit_layout": np.array(dense_logit_layout),
     }
 
 
@@ -200,7 +206,9 @@ def main() -> int:
             sample_idx=np.array(sample_idx, dtype=np.int32),
             sample_token=projection["sample_token"],
             teacher_backend=(
-                dense_teacher["teacher_backend"] if "teacher_backend" in dense_teacher else np.array("clipseg_dense")
+                dense_teacher["teacher_backend"]
+                if "teacher_backend" in dense_teacher
+                else np.array("external_dense_logits")
             ),
             teacher_role=dense_teacher["teacher_role"] if "teacher_role" in dense_teacher else np.array("unknown"),
             teacher_feature_granularity=(
@@ -208,9 +216,9 @@ def main() -> int:
                 if "teacher_feature_granularity" in dense_teacher
                 else np.array("dense_class_logits")
             ),
-            model_name=dense_teacher["model_name"],
+            model_name=dense_teacher["model_name"] if "model_name" in dense_teacher else np.array("external"),
             class_names=dense_teacher["class_names"],
-            prompts=dense_teacher["prompts"],
+            prompts=dense_teacher["prompts"] if "prompts" in dense_teacher else dense_teacher["class_names"],
             aggregation=np.array(args.aggregation),
         )
         class_hist = {}
@@ -222,10 +230,9 @@ def main() -> int:
         summary = {
             "sample_idx": sample_idx,
             "sample_token": str(projection["sample_token"].item()),
-            "teacher_backend": str(dense_teacher["teacher_backend"].item())
-            if "teacher_backend" in dense_teacher
-            else "clipseg_dense",
-            "model_name": str(dense_teacher["model_name"].item()),
+            "teacher_backend": scalar_to_str(dense_teacher.get("teacher_backend"), default="external_dense_logits"),
+            "model_name": scalar_to_str(dense_teacher.get("model_name"), default="external"),
+            "dense_logit_layout": scalar_to_str(assignment["dense_logit_layout"]),
             "aggregation": args.aggregation,
             "num_points": int(assignment["point_xyz"].shape[0]),
             "num_valid_points": valid_points,

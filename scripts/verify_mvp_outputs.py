@@ -25,13 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
             "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
             "v9 mini experiment protocol, v10 open-vocabulary inference/eval, "
-            "v11 text-aligned 3D embedding training/eval."
+            "v11 text-aligned 3D embedding training/eval, "
+            "v12 external dense teacher training/eval."
         ),
     )
     parser.add_argument(
@@ -949,7 +950,12 @@ def verify_mini_experiment_v9(outputs_dir: Path, args, checks: list[dict[str, An
 
 
 def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
-    default_experiment_name = "trainval_v11_text_align_128" if args.stage == "v11" else "trainval_v10_open_vocab_128"
+    if args.stage == "v12":
+        default_experiment_name = "trainval_v12_external_teacher_128"
+    elif args.stage == "v11":
+        default_experiment_name = "trainval_v11_text_align_128"
+    else:
+        default_experiment_name = "trainval_v10_open_vocab_128"
     experiment_dir = (
         Path(args.experiment_dir)
         if args.experiment_dir is not None
@@ -1066,18 +1072,21 @@ def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]])
 
 
 def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    default_experiment_name = (
+        "trainval_v12_external_teacher_128" if args.stage == "v12" else "trainval_v11_text_align_128"
+    )
     experiment_dir = (
         Path(args.experiment_dir)
         if args.experiment_dir is not None
-        else outputs_dir / "experiments" / "trainval_v11_text_align_128"
+        else outputs_dir / "experiments" / default_experiment_name
     )
     training_dir = experiment_dir / "training"
     summary_path = training_dir / "train_summary.json"
     latest_checkpoint = training_dir / "sparse_unet_spconv_latest.pt"
 
-    if not check_file(summary_path, checks, "v11_training_summary_json"):
+    if not check_file(summary_path, checks, f"{args.stage}_training_summary_json"):
         return
-    check_file(latest_checkpoint, checks, "v11_latest_checkpoint")
+    check_file(latest_checkpoint, checks, f"{args.stage}_latest_checkpoint")
 
     summary = load_json(summary_path)
     text_alignment = summary.get("text_alignment", {})
@@ -1088,21 +1097,21 @@ def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[
 
     add_check(
         checks,
-        "v11_text_alignment_enabled",
+        f"{args.stage}_text_alignment_enabled",
         bool(text_alignment.get("enabled", False)),
         f"text_alignment={text_alignment}",
         text_alignment,
     )
     add_check(
         checks,
-        "v11_text_align_weight",
+        f"{args.stage}_text_align_weight",
         float(loss_weights.get("text_align_weight", 0.0)) > 0.0,
         f"text_align_weight={loss_weights.get('text_align_weight')}",
         loss_weights,
     )
     add_check(
         checks,
-        "v11_epoch_logs",
+        f"{args.stage}_epoch_logs",
         bool(epoch_logs) and "avg_text_align_loss" in final_epoch,
         f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
         final_epoch,
@@ -1111,17 +1120,69 @@ def verify_text_aligned_training_v11(outputs_dir: Path, args, checks: list[dict[
         text_loss = float(final_epoch["avg_text_align_loss"])
         add_check(
             checks,
-            "v11_text_align_loss_finite",
+            f"{args.stage}_text_align_loss_finite",
             np.isfinite(text_loss) and text_loss >= 0.0,
             f"avg_text_align_loss={text_loss}",
             final_epoch,
         )
     add_check(
         checks,
-        "v11_warm_start_checkpoint",
+        f"{args.stage}_warm_start_checkpoint",
         bool(init_checkpoint) and Path(init_checkpoint).exists(),
         f"init_checkpoint={init_checkpoint}",
     )
+
+
+def verify_external_dense_teacher_v12(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v12_external_teacher_128"
+    )
+    check_summary = experiment_dir / "external_teacher_check" / "external_dense_teacher_check_summary.json"
+    dense_point_dir = experiment_dir / "precompute" / "dense_point_logits"
+    dense_point_files = sorted(dense_point_dir.glob("sample_*_dense_point_logits.npz"))
+    dense_point_summary = dense_point_dir / "batch_dense_point_logits_summary.json"
+
+    if check_file(check_summary, checks, "v12_external_teacher_check_summary_json", required=False):
+        summary = load_json(check_summary)
+        add_check(
+            checks,
+            "v12_external_teacher_check_status",
+            summary.get("status") == "pass",
+            f"status={summary.get('status')}, failed={summary.get('num_failed')}",
+            summary,
+        )
+
+    check_file(dense_point_dir, checks, "v12_dense_point_dir")
+    add_check(
+        checks,
+        "v12_dense_point_files",
+        len(dense_point_files) > 0,
+        f"num_dense_point_files={len(dense_point_files)}",
+    )
+    check_file(dense_point_summary, checks, "v12_dense_point_batch_summary_json", required=False)
+    if dense_point_files:
+        dense_point = load_npz(dense_point_files[0])
+        required = ["point_teacher_logits", "point_dense_valid_mask", "class_names", "teacher_backend"]
+        missing = [key for key in required if key not in dense_point]
+        add_check(checks, "v12_dense_point_required_keys", not missing, f"missing_keys={missing}", missing)
+        if not missing:
+            logits = dense_point["point_teacher_logits"]
+            valid_mask = dense_point["point_dense_valid_mask"].astype(bool)
+            teacher_backend = str(dense_point["teacher_backend"].item())
+            add_check(
+                checks,
+                "v12_dense_point_shapes",
+                logits.ndim == 2 and logits.shape[0] == valid_mask.shape[0] and logits.shape[1] >= args.expected_num_classes,
+                f"logits={logits.shape}, valid_mask={valid_mask.shape}, teacher_backend={teacher_backend}",
+            )
+            add_check(
+                checks,
+                "v12_dense_point_valid_points",
+                int(valid_mask.sum()) > 0,
+                f"valid_points={int(valid_mask.sum())}, total={int(valid_mask.shape[0])}",
+            )
 
 
 def main() -> int:
@@ -1131,7 +1192,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage not in {"v9", "v10", "v11"}:
+    if args.stage not in {"v9", "v10", "v11", "v12"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -1157,6 +1218,10 @@ def main() -> int:
     if args.stage == "v10":
         verify_open_vocab_v10(outputs_dir, args, checks)
     if args.stage == "v11":
+        verify_text_aligned_training_v11(outputs_dir, args, checks)
+        verify_open_vocab_v10(outputs_dir, args, checks)
+    if args.stage == "v12":
+        verify_external_dense_teacher_v12(outputs_dir, args, checks)
         verify_text_aligned_training_v11(outputs_dir, args, checks)
         verify_open_vocab_v10(outputs_dir, args, checks)
 
