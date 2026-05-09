@@ -16,8 +16,10 @@ def ensure_dir(path: str | Path) -> Path:
 def save_json(path: str | Path, data: dict[str, Any]) -> Path:
     path = Path(path)
     ensure_dir(path.parent)
-    with path.open("w", encoding="utf-8") as file:
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
+    tmp_path.replace(path)
     return path
 
 
@@ -30,8 +32,26 @@ def load_json(path: str | Path) -> dict[str, Any]:
 def save_npz(path: str | Path, **arrays: Any) -> Path:
     path = Path(path)
     ensure_dir(path.parent)
-    np.savez_compressed(path, **arrays)
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    with tmp_path.open("wb") as file:
+        np.savez_compressed(file, **arrays)
+    tmp_path.replace(path)
     return path
+
+
+def is_valid_npz(path: str | Path, required_keys: list[str] | tuple[str, ...] | None = None) -> bool:
+    path = Path(path)
+    if not path.is_file():
+        return False
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            if required_keys is not None:
+                missing_keys = [key for key in required_keys if key not in data.files]
+                if missing_keys:
+                    return False
+        return True
+    except Exception:
+        return False
 
 
 def load_text_lines(path: str | Path) -> list[str]:

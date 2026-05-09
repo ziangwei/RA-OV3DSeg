@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset  # noqa: E402
 from ra_ov3dseg.models.clipseg_dense_teacher import CLIPSegDenseTeacher  # noqa: E402
 from ra_ov3dseg.models.teacher_registry import CLIPSEG_DENSE, describe_teacher  # noqa: E402
-from ra_ov3dseg.utils.io import ensure_dir, load_text_lines, save_json, save_npz  # noqa: E402
+from ra_ov3dseg.utils.io import ensure_dir, is_valid_npz, load_text_lines, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 
@@ -74,10 +74,12 @@ def main() -> int:
         prefix = f"sample_{sample_idx:04d}"
         output_npz = output_dir / f"{prefix}_dense_teacher_logits.npz"
         summary_json = output_dir / f"{prefix}_dense_teacher_logits_summary.json"
-        if args.skip_existing and output_npz.exists() and summary_json.exists():
+        if args.skip_existing and summary_json.exists() and is_valid_npz(output_npz, required_keys=("dense_logits",)):
             logger.info("skip existing dense teacher logits for sample_idx=%d", sample_idx)
             batch_summary["samples"].append({"sample_idx": sample_idx, "status": "skipped_existing"})
             continue
+        if args.skip_existing and output_npz.exists() and not is_valid_npz(output_npz, required_keys=("dense_logits",)):
+            logger.warning("invalid existing dense teacher npz, recomputing: %s", output_npz)
 
         sample = dataset.get_sample_by_index(sample_idx)
         dense_logits = None

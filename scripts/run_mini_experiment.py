@@ -119,6 +119,7 @@ def run_command(
 ) -> None:
     started = time.time()
     command_text = command_to_text(command)
+    logger.info("========== STEP START: %s ==========", step_name)
     logger.info("[%s] %s", "DRY-RUN" if dry_run else "RUN", command_text)
     entry: dict[str, Any] = {
         "step": step_name,
@@ -129,6 +130,7 @@ def run_command(
     command_log.append(entry)
     if dry_run:
         entry["elapsed_sec"] = 0.0
+        logger.info("========== STEP DRY-RUN: %s ==========", step_name)
         return
 
     result = subprocess.run(command, cwd=str(ROOT), check=False)
@@ -136,8 +138,15 @@ def run_command(
     entry["elapsed_sec"] = float(time.time() - started)
     if result.returncode != 0:
         entry["status"] = "failed"
+        logger.error(
+            "========== STEP FAIL: %s | elapsed=%.1fs | returncode=%d ==========",
+            step_name,
+            entry["elapsed_sec"],
+            result.returncode,
+        )
         raise RuntimeError(f"step failed: {step_name} | returncode={result.returncode}")
     entry["status"] = "done"
+    logger.info("========== STEP DONE: %s | elapsed=%.1fs ==========", step_name, entry["elapsed_sec"])
 
 
 def python_script(script_name: str) -> list[str]:
@@ -174,6 +183,39 @@ def precompute_ranges(args: argparse.Namespace) -> list[tuple[int, int]]:
         if item not in deduped:
             deduped.append(item)
     return deduped
+
+
+def build_execution_plan(args: argparse.Namespace) -> list[str]:
+    plan: list[str] = []
+    if not args.skip_precompute:
+        for start_idx, max_samples in precompute_ranges(args):
+            plan.extend(
+                [
+                    f"project_lidar_to_cameras start={start_idx} max={max_samples}",
+                    f"extract_2d_features start={start_idx} max={max_samples}",
+                    f"assign_2d_features_to_points start={start_idx} max={max_samples}",
+                ]
+            )
+        plan.extend(
+            [
+                f"zero_shot_eval train_start={args.train_start_idx} train_max={args.train_max_samples}",
+                f"compute_reliability train_start={args.train_start_idx} train_max={args.train_max_samples}",
+            ]
+        )
+        if args.teacher_mode in {"dense_logit_distill", "hybrid"}:
+            plan.extend(
+                [
+                    f"extract_dense_teacher_logits train_start={args.train_start_idx} train_max={args.train_max_samples}",
+                    f"assign_dense_logits_to_points train_start={args.train_start_idx} train_max={args.train_max_samples}",
+                ]
+            )
+    if not args.skip_train:
+        plan.append(f"train_3d_segmentor epochs={args.epochs} train_max={args.train_max_samples}")
+    if not args.skip_predict:
+        plan.append(f"predict_3d_segmentor eval_start={args.eval_start_idx} eval_max={args.eval_max_samples}")
+    if not args.skip_eval:
+        plan.append(f"eval_lidarseg eval_start={args.eval_start_idx} eval_max={args.eval_max_samples}")
+    return plan
 
 
 def collect_metrics(experiment_dir: Path, eval_start_idx: int, eval_max_samples: int) -> dict[str, Any]:
@@ -255,6 +297,19 @@ def main() -> int:
 
     if args.teacher_mode in {"dense_logit_distill", "hybrid"} and args.student_output_space == "base":
         raise ValueError("Dense/hybrid V9 should use --student_output_space all_lidarseg or auto, not base.")
+
+    execution_plan = build_execution_plan(args)
+    logger.info("========== EXPERIMENT PLAN ==========")
+    logger.info("version=%s | teacher_mode=%s | student_output_space=%s", args.version, args.teacher_mode, args.student_output_space)
+    logger.info(
+        "train_range=start:%d max:%d | eval_range=start:%d max:%d",
+        args.train_start_idx,
+        args.train_max_samples,
+        args.eval_start_idx,
+        args.eval_max_samples,
+    )
+    for step_idx, step_text in enumerate(execution_plan, start=1):
+        logger.info("plan_step=%02d/%02d | %s", step_idx, len(execution_plan), step_text)
 
     try:
         if not args.skip_precompute:
