@@ -19,7 +19,7 @@ from ra_ov3dseg.evaluation.metrics import (  # noqa: E402
     segmentation_intersections_unions,
 )
 from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
-from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
+from ra_ov3dseg.utils.io import ensure_dir, load_json, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 
@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_samples", default=1, type=int)
     parser.add_argument("--prediction_npz", default=None, type=str, help="Explicit prediction npz for one sample.")
     parser.add_argument("--prediction_dir", default="outputs/predictions3d", type=str)
+    parser.add_argument(
+        "--prediction_file_template",
+        default="sample_{sample_idx:04d}_3d_predictions.npz",
+        type=str,
+        help="Prediction filename template used in batch mode.",
+    )
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
     parser.add_argument("--split_config", default="configs/base_novel_split.yaml", type=str)
     parser.add_argument("--output_dir", default="outputs/evaluation3d", type=str)
@@ -56,7 +62,10 @@ def build_jobs(args, dataset: NuScenesDataset) -> list[tuple[int, Path]]:
         max_samples=args.max_samples,
     )
     prediction_dir = Path(args.prediction_dir).expanduser().resolve()
-    return [(sample_idx, prediction_dir / f"sample_{sample_idx:04d}_3d_predictions.npz") for sample_idx in sample_indices]
+    return [
+        (sample_idx, prediction_dir / args.prediction_file_template.format(sample_idx=sample_idx))
+        for sample_idx in sample_indices
+    ]
 
 
 def finite_or_none(value: float) -> float | None:
@@ -208,7 +217,25 @@ def main() -> int:
         summary_json = output_dir / f"{prefix}_3d_eval_summary.json"
         if args.skip_existing and eval_npz.exists() and summary_json.exists():
             logger.info("skip existing eval outputs for sample_idx=%d", sample_idx)
-            batch_outputs.append({"sample_idx": sample_idx, "status": "skipped_existing", "eval_npz": str(eval_npz)})
+            existing_eval = load_npz(eval_npz)
+            existing_summary = load_json(summary_json)
+            total_intersections += existing_eval["intersections"].astype(np.int64)
+            total_unions += existing_eval["unions"].astype(np.int64)
+            total_gt_counts += existing_eval["gt_counts"].astype(np.int64)
+            total_pred_counts += existing_eval["pred_counts"].astype(np.int64)
+            total_confusion += existing_eval["confusion_matrix"].astype(np.int64)
+            metrics = existing_summary.get("metrics", {})
+            total_points += int(metrics.get("num_points", int(existing_eval["gt_counts"].sum())))
+            total_valid_pred_points += int(metrics.get("num_valid_pred_points", int(existing_eval["pred_counts"].sum())))
+            batch_outputs.append(
+                {
+                    "sample_idx": sample_idx,
+                    "status": "skipped_existing",
+                    "eval_npz": str(eval_npz),
+                    "summary_json": str(summary_json),
+                    "metrics": metrics,
+                }
+            )
             continue
 
         sample = dataset.get_sample_by_index(sample_idx)

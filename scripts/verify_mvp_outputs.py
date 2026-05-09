@@ -25,12 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
             "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
-            "v9 mini experiment protocol."
+            "v9 mini experiment protocol, v10 open-vocabulary inference/eval."
         ),
     )
     parser.add_argument(
@@ -110,6 +110,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=str,
         help="Optional V9 experiment directory. Defaults to outputs_dir/experiments/mini_v9.",
+    )
+    parser.add_argument(
+        "--open_vocab_prediction_dir",
+        default=None,
+        type=str,
+        help="Optional V10 open-vocabulary prediction directory.",
+    )
+    parser.add_argument(
+        "--open_vocab_evaluation_dir",
+        default=None,
+        type=str,
+        help="Optional V10 open-vocabulary evaluation directory.",
     )
     return parser
 
@@ -935,6 +947,122 @@ def verify_mini_experiment_v9(outputs_dir: Path, args, checks: list[dict[str, An
             )
 
 
+def verify_open_vocab_v10(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v10_open_vocab_128"
+    )
+    prediction_dir = (
+        Path(args.open_vocab_prediction_dir)
+        if args.open_vocab_prediction_dir is not None
+        else experiment_dir / "open_vocab_predictions3d"
+    )
+    evaluation_dir = (
+        Path(args.open_vocab_evaluation_dir)
+        if args.open_vocab_evaluation_dir is not None
+        else experiment_dir / "open_vocab_evaluation3d"
+    )
+    prefix = f"sample_{args.sample_idx:04d}"
+    pred_npz = prediction_dir / f"{prefix}_open_vocab_predictions.npz"
+    pred_summary = prediction_dir / f"{prefix}_open_vocab_prediction_summary.json"
+    pred_ply = prediction_dir / f"{prefix}_open_vocab_predictions.ply"
+    pred_bev = prediction_dir / f"{prefix}_open_vocab_predictions_bev.png"
+    batch_pred_summary = prediction_dir / "batch_open_vocab_prediction_summary.json"
+    eval_npz = evaluation_dir / f"{prefix}_3d_eval.npz"
+    eval_summary = evaluation_dir / f"{prefix}_3d_eval_summary.json"
+    batch_eval_summary = evaluation_dir / "batch_3d_eval_summary.json"
+
+    if not check_file(pred_npz, checks, "open_vocab_prediction_npz"):
+        return
+    check_file(pred_summary, checks, "open_vocab_prediction_summary_json")
+    check_file(pred_ply, checks, "open_vocab_prediction_points_ply", required=False)
+    check_file(pred_bev, checks, "open_vocab_prediction_bev_png", required=False)
+    check_file(batch_pred_summary, checks, "open_vocab_batch_prediction_summary_json", required=False)
+
+    pred = load_npz(pred_npz)
+    pred_required = [
+        "point_xyz",
+        "model_valid_mask",
+        "pred_query_indices",
+        "pred_label_indices",
+        "pred_scores",
+        "query_class_names",
+        "text_embeddings",
+    ]
+    missing_pred = [key for key in pred_required if key not in pred]
+    add_check(checks, "open_vocab_prediction_required_keys", not missing_pred, f"missing_keys={missing_pred}", missing_pred)
+    if missing_pred:
+        return
+
+    point_xyz = pred["point_xyz"]
+    point_embeddings = pred["point_embeddings"] if "point_embeddings" in pred else None
+    text_embeddings = pred["text_embeddings"]
+    pred_query_indices = pred["pred_query_indices"]
+    pred_label_indices = pred["pred_label_indices"]
+    pred_scores = pred["pred_scores"]
+    model_valid = pred["model_valid_mask"].astype(bool)
+    query_class_names = pred["query_class_names"]
+    add_check(
+        checks,
+        "open_vocab_prediction_shapes",
+        (
+            point_xyz.ndim == 2
+            and point_xyz.shape[1] == 3
+            and text_embeddings.ndim == 2
+            and pred_query_indices.shape[0] == point_xyz.shape[0]
+            and pred_label_indices.shape[0] == point_xyz.shape[0]
+            and pred_scores.shape[0] == point_xyz.shape[0]
+            and (
+                point_embeddings is None
+                or (
+                    point_embeddings.ndim == 2
+                    and point_embeddings.shape[0] == point_xyz.shape[0]
+                    and point_embeddings.shape[1] == text_embeddings.shape[1]
+                )
+            )
+        ),
+        (
+            f"point_xyz={point_xyz.shape}, "
+            f"point_embeddings={None if point_embeddings is None else point_embeddings.shape}, "
+            f"text_embeddings={text_embeddings.shape}, query_classes={query_class_names.shape}"
+        ),
+    )
+    valid_predictions = model_valid & (pred_query_indices >= 0)
+    mapped_predictions = model_valid & (pred_label_indices >= 0)
+    add_check(
+        checks,
+        "open_vocab_valid_predictions",
+        int(valid_predictions.sum()) > 0,
+        f"valid_query_predictions={int(valid_predictions.sum())}, total={int(point_xyz.shape[0])}",
+    )
+    add_check(
+        checks,
+        "open_vocab_mapped_predictions",
+        int(mapped_predictions.sum()) > 0,
+        f"mapped_lidarseg_predictions={int(mapped_predictions.sum())}, total={int(point_xyz.shape[0])}",
+    )
+
+    if check_file(eval_npz, checks, "open_vocab_evaluation_npz", required=False):
+        check_file(eval_summary, checks, "open_vocab_evaluation_summary_json", required=False)
+        eval_data = load_npz(eval_npz)
+        eval_required = ["class_names", "intersections", "unions", "ious", "confusion_matrix"]
+        missing_eval = [key for key in eval_required if key not in eval_data]
+        add_check(checks, "open_vocab_evaluation_required_keys", not missing_eval, f"missing_keys={missing_eval}", missing_eval)
+    check_file(batch_eval_summary, checks, "open_vocab_batch_evaluation_summary_json", required=False)
+    if batch_eval_summary.exists():
+        batch_summary = load_json(batch_eval_summary)
+        aggregate = batch_summary.get("aggregate_metrics", {})
+        metric_keys = {"all_miou", "base_miou", "novel_miou", "prediction_coverage"}
+        add_check(
+            checks,
+            "open_vocab_aggregate_metrics",
+            metric_keys.issubset(set(aggregate.keys())),
+            f"metrics_keys={sorted(aggregate.keys())}",
+            aggregate,
+        )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -942,7 +1070,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage != "v9":
+    if args.stage not in {"v9", "v10"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -965,6 +1093,8 @@ def main() -> int:
         verify_prediction_eval_v8(outputs_dir, args.sample_idx, args, checks)
     if args.stage == "v9":
         verify_mini_experiment_v9(outputs_dir, args, checks)
+    if args.stage == "v10":
+        verify_open_vocab_v10(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

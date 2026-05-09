@@ -77,6 +77,53 @@ the missing stage.
 
 Use `--no_skip_existing` only when intentionally regenerating artifacts.
 
+## V10 Open-Vocabulary Evaluation
+
+Run open-vocabulary prediction with the V9 isolated checkpoint:
+
+```bash
+bash scripts/run_v10_open_vocab_eval.sh
+```
+
+This writes:
+
+```text
+outputs/experiments/trainval_v10_open_vocab_128/
+  open_vocab_predictions3d/
+  open_vocab_evaluation3d/
+outputs/logs/v10_trainval_v10_open_vocab_128_<timestamp>.log
+outputs/logs/v10_trainval_v10_open_vocab_128_latest.log
+```
+
+Watch progress:
+
+```bash
+tail -f outputs/logs/v10_trainval_v10_open_vocab_128_latest.log
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v10 \
+  --sample_idx 128 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v10_open_vocab_128 \
+  --output_dir outputs/verification
+```
+
+Arbitrary text query mode:
+
+```bash
+bash scripts/run_v10_open_vocab_eval.sh \
+  --experiment_name trainval_v10_custom_queries \
+  --class_names_csv "driveable surface,sidewalk,car,truck,pedestrian,vegetation" \
+  --skip_eval
+```
+
+`--skip_eval` is required for arbitrary labels unless they exactly map to
+nuScenes-lidarseg names.
+
 ## V10+ Rule
 
 New training or evaluation stages should follow the same pattern:

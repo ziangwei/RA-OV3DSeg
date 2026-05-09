@@ -141,6 +141,17 @@ trained 3D point embeddings
   -> base / novel / all mIoU against lidarseg when labels are available
 ```
 
+V10 implementation status:
+
+- `scripts/predict_3d_open_vocab.py` loads a trained 3D checkpoint, computes
+  point embeddings, encodes arbitrary text classes, and predicts by cosine
+  similarity.
+- `scripts/run_v10_open_vocab_eval.sh` runs the default full lidarseg 32-class
+  text-query evaluation using the V9 isolated checkpoint and precomputed point
+  features.
+- Closed-set classifier logits are no longer used for V10 prediction; they remain
+  an auxiliary training scaffold.
+
 After V10, teacher upgrade should focus on improving text-aligned dense teacher
 quality, not on adding new datasets.
 
