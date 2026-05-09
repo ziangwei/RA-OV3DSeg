@@ -9,6 +9,8 @@ from importlib import import_module
 __all__ = [
     "DEBUG_BACKBONE",
     "SPARSE_UNET_BACKBONE",
+    "SPCONV_RESUNET_BACKBONE",
+    "SPCONV_BACKBONES",
     "SUPPORTED_BACKBONES",
     "build_segmentor",
     "describe_backbone",
@@ -25,6 +27,8 @@ __all__ = [
 _SEGMENTOR_EXPORTS = {
     "DEBUG_BACKBONE",
     "SPARSE_UNET_BACKBONE",
+    "SPCONV_RESUNET_BACKBONE",
+    "SPCONV_BACKBONES",
     "SUPPORTED_BACKBONES",
     "build_segmentor",
     "describe_backbone",

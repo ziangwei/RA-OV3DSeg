@@ -48,17 +48,17 @@ sweeps are not required by the current pipeline.
 - Role: MVP baseline only.
 - Limitation: coarse ViT patch tokens are not reliable enough for fine point-level distillation.
 
-`openseg_dense`
+`clipseg_dense`
 
-- Status: planned.
-- Role: main dense teacher.
-- Target: pixel-level open-vocabulary features or logits sampled at projected LiDAR locations.
+- Status: runnable.
+- Role: weak dense-logit baseline.
+- Limitation: useful for pipeline checks, not a final teacher for nuScenes-lidarseg.
 
-`grounded_sam_mask`
+`groupvit_dense`
 
-- Status: planned.
-- Role: high-quality mask pseudo-label teacher.
-- Target: later-stage refinement, not the first production teacher.
+- Status: runnable.
+- Role: current single-environment dense open-vocabulary teacher.
+- Limitation: V12 shows it is not strong enough to trust blindly; it needs teacher-quality gating.
 
 ## Backbone Backends
 
@@ -71,8 +71,14 @@ sweeps are not required by the current pipeline.
 `sparse_unet_spconv`
 
 - Status: implemented as an MVP-v5 SparseUNet-Lite adapter.
-- Role: main 3D student backbone.
+- Role: compact 3D student backbone.
 - Target: voxelize points, run sparse U-Net, gather voxel features back to points, keep CE + reliability distillation losses.
+
+`spconv_resunet`
+
+- Status: implemented for V13 diagnostics.
+- Role: stronger in-repository 3D student for supervised upper-bound checks.
+- Target: determine whether the current bottleneck is 3D capacity before spending more compute on open-vocabulary teacher distillation.
 
 ## Milestones
 
@@ -183,6 +189,22 @@ nuScenes camera images
 
 This keeps the workflow inside the existing RA-OV3DSeg repository and conda
 environment.
+
+V13 stops adding more weak-teacher training and adds two diagnostic gates:
+
+```text
+projected dense teacher logits
+  -> direct teacher pseudo-label mIoU against lidarseg
+
+full lidarseg supervision
+  -> spconv_resunet closed-set upper-bound mIoU
+```
+
+Decision rule:
+
+- If teacher pseudo-label mIoU is poor, reliability-aware distillation cannot fix the teacher alone.
+- If supervised `spconv_resunet` is poor, the 3D student capacity or training recipe must be fixed first.
+- Only if both gates are acceptable should the project spend more compute on open-vocabulary distillation.
 
 The final experiments should compare:
 

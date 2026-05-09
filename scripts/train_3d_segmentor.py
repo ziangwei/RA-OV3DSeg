@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
 from ra_ov3dseg.models.segmentor_factory import (  # noqa: E402
     DEBUG_BACKBONE,
-    SPARSE_UNET_BACKBONE,
+    SPCONV_BACKBONES,
     SUPPORTED_BACKBONES,
     build_segmentor,
     describe_backbone,
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--backbone",
         default=DEBUG_BACKBONE,
         choices=list(SUPPORTED_BACKBONES),
-        help="3D backbone. debug_point_mlp is only a smoke-test model; sparse_unet_spconv is the planned V5 adapter.",
+        help="3D backbone. debug_point_mlp is only a smoke-test model; spconv_resunet is the stronger upper-bound check.",
     )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"], help="Training device.")
     parser.add_argument("--epochs", default=2, type=int)
@@ -458,7 +458,7 @@ def main() -> int:
         model = DistributedDataParallel(
             model,
             device_ids=device_ids,
-            find_unused_parameters=(args.backbone == SPARSE_UNET_BACKBONE),
+            find_unused_parameters=(args.backbone in SPCONV_BACKBONES),
         )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

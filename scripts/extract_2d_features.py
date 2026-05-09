@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
 from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset  # noqa: E402
 from ra_ov3dseg.models.teacher_registry import (  # noqa: E402
     CLIP_PATCH_BASELINE,
-    SUPPORTED_TEACHERS,
     build_image_teacher,
     describe_teacher,
 )
@@ -31,10 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--teacher_backend",
         default=CLIP_PATCH_BASELINE,
-        choices=list(SUPPORTED_TEACHERS),
+        choices=[CLIP_PATCH_BASELINE],
         help=(
-            "2D teacher backend. clip_patch_baseline is an MVP baseline; "
-            "openseg_dense is the planned dense teacher mainline."
+            "2D patch-feature backend for MVP-v1. Dense teachers use "
+            "scripts/extract_dense_teacher_logits.py instead."
         ),
     )
     parser.add_argument(

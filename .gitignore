@@ -4,6 +4,8 @@ outputs/
 *.pth
 *.pt
 *.ckpt
+train_summary.json
+batch_3d_eval_summary.json
 __pycache__/
 .DS_Store
 *.pyc

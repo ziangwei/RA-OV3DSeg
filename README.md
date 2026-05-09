@@ -23,7 +23,8 @@ Teacher registry:
 3D backbone registry:
 
 - `debug_point_mlp`: runnable training harness only.
-- `sparse_unet_spconv`: planned V5 sparse-conv 3D student.
+- `sparse_unet_spconv`: compact sparse-conv student used by V5-V12.
+- `spconv_resunet`: stronger in-repository sparse ResUNet for V13 supervised upper-bound checks.
 
 See `docs/ROADMAP.md` for the corrected project path.
 

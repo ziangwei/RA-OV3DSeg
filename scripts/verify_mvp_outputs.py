@@ -25,14 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
             "v6 dense teacher logits, v7 dense-logit distillation training, v8 3D prediction/eval, "
             "v9 mini experiment protocol, v10 open-vocabulary inference/eval, "
             "v11 text-aligned 3D embedding training/eval, "
-            "v12 GroupViT dense teacher training/eval."
+            "v12 GroupViT dense teacher training/eval, "
+            "v13 teacher-quality and supervised-backbone diagnostics."
         ),
     )
     parser.add_argument(
@@ -1215,6 +1216,62 @@ def verify_groupvit_dense_teacher_v12(outputs_dir: Path, args, checks: list[dict
             )
 
 
+def verify_diagnostics_v13(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v13_diagnostics_128"
+    )
+    teacher_summary_path = experiment_dir / "teacher_quality" / "batch_teacher_pseudo_eval_summary.json"
+    training_dir = experiment_dir / "supervised_training"
+    training_summary_path = training_dir / "train_summary.json"
+    latest_checkpoint = training_dir / "spconv_resunet_latest.pt"
+    eval_summary_path = experiment_dir / "supervised_evaluation3d" / "batch_3d_eval_summary.json"
+
+    if check_file(teacher_summary_path, checks, "v13_teacher_quality_summary_json"):
+        teacher_summary = load_json(teacher_summary_path)
+        metrics = teacher_summary.get("aggregate_metrics", {})
+        add_check(
+            checks,
+            "v13_teacher_quality_metrics",
+            {"all_miou", "base_miou", "prediction_coverage"}.issubset(metrics.keys()),
+            f"metrics_keys={sorted(metrics.keys())}",
+            metrics,
+        )
+
+    if check_file(training_summary_path, checks, "v13_supervised_training_summary_json"):
+        training_summary = load_json(training_summary_path)
+        backbone = training_summary.get("backbone", {})
+        epoch_logs = training_summary.get("epoch_logs", [])
+        final_epoch = epoch_logs[-1] if epoch_logs else {}
+        add_check(
+            checks,
+            "v13_supervised_backbone",
+            backbone.get("backbone") == "spconv_resunet",
+            f"backbone={backbone.get('backbone')}",
+            backbone,
+        )
+        add_check(
+            checks,
+            "v13_supervised_epoch_logs",
+            bool(epoch_logs) and "avg_ce_loss" in final_epoch,
+            f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
+            final_epoch,
+        )
+    check_file(latest_checkpoint, checks, "v13_supervised_latest_checkpoint")
+
+    if check_file(eval_summary_path, checks, "v13_supervised_eval_summary_json"):
+        eval_summary = load_json(eval_summary_path)
+        metrics = eval_summary.get("aggregate_metrics", {})
+        add_check(
+            checks,
+            "v13_supervised_eval_metrics",
+            {"all_miou", "base_miou", "prediction_coverage"}.issubset(metrics.keys()),
+            f"metrics_keys={sorted(metrics.keys())}",
+            metrics,
+        )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -1222,7 +1279,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage not in {"v9", "v10", "v11", "v12"}:
+    if args.stage not in {"v9", "v10", "v11", "v12", "v13"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -1254,6 +1311,8 @@ def main() -> int:
         verify_groupvit_dense_teacher_v12(outputs_dir, args, checks)
         verify_text_aligned_training_v11(outputs_dir, args, checks)
         verify_open_vocab_v10(outputs_dir, args, checks)
+    if args.stage == "v13":
+        verify_diagnostics_v13(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

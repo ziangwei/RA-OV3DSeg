@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ra_ov3dseg.models.point_mlp import PointMLP
-
 
 DEBUG_BACKBONE = "debug_point_mlp"
 SPARSE_UNET_BACKBONE = "sparse_unet_spconv"
-SUPPORTED_BACKBONES = (DEBUG_BACKBONE, SPARSE_UNET_BACKBONE)
+SPCONV_RESUNET_BACKBONE = "spconv_resunet"
+SPCONV_BACKBONES = (SPARSE_UNET_BACKBONE, SPCONV_RESUNET_BACKBONE)
+SUPPORTED_BACKBONES = (DEBUG_BACKBONE, SPARSE_UNET_BACKBONE, SPCONV_RESUNET_BACKBONE)
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,17 @@ def describe_backbone(backbone: str) -> SegmentorSpec:
                 "SparseUNet-Lite context aggregation, and point-wise feature gather."
             ),
         )
+    if backbone == SPCONV_RESUNET_BACKBONE:
+        return SegmentorSpec(
+            backbone=backbone,
+            role="high_capacity_sparse_3d_student",
+            is_debug_model=False,
+            description=(
+                "Higher-capacity in-repository spconv ResUNet with three sparse down/up stages "
+                "and residual submanifold blocks. Use it for supervised upper-bound and serious "
+                "student-capacity checks before drawing conclusions about open-vocabulary distillation."
+            ),
+        )
     raise ValueError(f"Unknown backbone={backbone}. Supported backbones: {SUPPORTED_BACKBONES}")
 
 
@@ -54,11 +65,13 @@ def build_segmentor(
 ):
     """Build the 3D segmentation model used by the generic trainer.
 
-    The current runnable implementation is intentionally named `debug_point_mlp`.
-    That prevents the MVP harness from being mistaken for the final 3D model.
+    The trainer stays stable while backbones are swapped through this factory.
+    This keeps architecture changes isolated from data, loss, and eval code.
     """
 
     if backbone == DEBUG_BACKBONE:
+        from ra_ov3dseg.models.point_mlp import PointMLP
+
         return PointMLP(
             input_dim=input_dim,
             hidden_dim=hidden_dim,
@@ -70,6 +83,17 @@ def build_segmentor(
         from ra_ov3dseg.models.sparse_unet_spconv import SparseUNetSpConv
 
         return SparseUNetSpConv(
+            feature_dim=feature_dim,
+            num_classes=num_classes,
+            voxel_size=voxel_size,
+            point_cloud_range=point_cloud_range,
+            base_channels=sparse_base_channels,
+        )
+
+    if backbone == SPCONV_RESUNET_BACKBONE:
+        from ra_ov3dseg.models.spconv_resunet import SpConvResUNet
+
+        return SpConvResUNet(
             feature_dim=feature_dim,
             num_classes=num_classes,
             voxel_size=voxel_size,

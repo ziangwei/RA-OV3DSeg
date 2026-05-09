@@ -247,3 +247,48 @@ python scripts/verify_mvp_outputs.py \
   --experiment_dir outputs/experiments/trainval_v12_groupvit_128 \
   --output_dir outputs/verification
 ```
+
+## V13 Diagnostics
+
+V13 is not another teacher sweep. It answers two gating questions before more
+open-vocabulary training:
+
+- How good is the projected dense 2D teacher by itself?
+- How high can a stronger 3D student go under full lidarseg supervision?
+
+Smoke run:
+
+```bash
+bash scripts/run_v13_diagnostics.sh \
+  --experiment_name trainval_v13_diagnostics_smoke \
+  --train_max_samples 8 \
+  --eval_max_samples 8 \
+  --epochs 2 \
+  --sparse_base_channels 16
+```
+
+Default 128-sample diagnostic:
+
+```bash
+bash scripts/run_v13_diagnostics.sh
+```
+
+This writes:
+
+```text
+outputs/experiments/trainval_v13_diagnostics_128/
+  teacher_quality/
+  supervised_training/
+  supervised_predictions3d/
+  supervised_evaluation3d/
+outputs/logs/v13_trainval_v13_diagnostics_128_<timestamp>.log
+outputs/logs/v13_trainval_v13_diagnostics_128_latest.log
+```
+
+Key files to inspect:
+
+```text
+outputs/experiments/trainval_v13_diagnostics_128/teacher_quality/batch_teacher_pseudo_eval_summary.json
+outputs/experiments/trainval_v13_diagnostics_128/supervised_training/train_summary.json
+outputs/experiments/trainval_v13_diagnostics_128/supervised_evaluation3d/batch_3d_eval_summary.json
+```
