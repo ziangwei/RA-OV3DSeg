@@ -292,3 +292,51 @@ outputs/experiments/trainval_v13_diagnostics_128/teacher_quality/batch_teacher_p
 outputs/experiments/trainval_v13_diagnostics_128/supervised_training/train_summary.json
 outputs/experiments/trainval_v13_diagnostics_128/supervised_evaluation3d/batch_3d_eval_summary.json
 ```
+
+## V14 Supervised ResUNet Recipe
+
+V14 improves the closed-set 3D upper-bound recipe before more open-vocabulary
+distillation:
+
+- Uses raw nuScenes LiDAR + lidarseg labels directly; it does not require V9
+  point-feature/reliability precompute caches.
+- Computes class frequencies and inverse-sqrt class weights.
+- Trains `spconv_resunet` with weighted CE plus optional Lovasz/Dice losses.
+- Enables basic LiDAR augmentations.
+- Evaluates during training and saves `spconv_resunet_best.pt` by eval mIoU.
+
+Smoke run:
+
+```bash
+bash scripts/run_v14_supervised_resunet.sh \
+  --experiment_name trainval_v14_supervised_resunet_smoke \
+  --train_max_samples 8 \
+  --eval_max_samples 8 \
+  --epochs 2 \
+  --sparse_base_channels 16
+```
+
+Default 128-sample run:
+
+```bash
+bash scripts/run_v14_supervised_resunet.sh
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v14 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v14_supervised_resunet_128 \
+  --output_dir outputs/verification
+```
+
+Key files:
+
+```text
+outputs/experiments/trainval_v14_supervised_resunet_128/class_frequencies.json
+outputs/experiments/trainval_v14_supervised_resunet_128/training/train_summary.json
+outputs/experiments/trainval_v14_supervised_resunet_128/training/spconv_resunet_best.pt
+outputs/experiments/trainval_v14_supervised_resunet_128/evaluation3d/batch_3d_eval_summary.json
+```

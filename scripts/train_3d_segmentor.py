@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -23,6 +25,8 @@ from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
 from ra_ov3dseg.training.losses import (  # noqa: E402
     cosine_distillation_loss,
     dense_logit_distillation_loss,
+    dice_loss,
+    lovasz_softmax_loss,
     supervised_ce_loss,
     text_prototype_alignment_loss,
 )
@@ -34,8 +38,12 @@ from ra_ov3dseg.training.precomputed_dataset import (  # noqa: E402
     find_missing_precomputed_files,
     label_hist,
 )
+from ra_ov3dseg.training.raw_lidarseg_dataset import RawLidarsegDataset  # noqa: E402
 from ra_ov3dseg.utils.io import ensure_dir, save_json  # noqa: E402
+from ra_ov3dseg.utils.io import load_json  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
+from ra_ov3dseg.evaluation.metrics import mean_iou_for_ids, safe_iou, segmentation_intersections_unions  # noqa: E402
+from ra_ov3dseg.training.augmentations import PointAugmentationConfig  # noqa: E402
 
 
 FEATURE_DISTILL_MODE = "feature_distill"
@@ -58,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--point_feature_dir", default="outputs/point_features", type=str)
     parser.add_argument("--reliability_dir", default="outputs/reliability", type=str)
     parser.add_argument("--dense_point_dir", default="outputs/dense_point_logits", type=str)
+    parser.add_argument(
+        "--data_source",
+        default="precomputed",
+        choices=["precomputed", "raw_lidarseg"],
+        help="precomputed uses MVP point-feature caches; raw_lidarseg reads LiDAR/lidarseg directly.",
+    )
     parser.add_argument(
         "--teacher_mode",
         default=FEATURE_DISTILL_MODE,
@@ -93,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num_workers", default=0, type=int)
     parser.add_argument("--max_points", default=20000, type=int, help="Subsample points per sample; <=0 keeps all.")
     parser.add_argument("--hidden_dim", default=128, type=int, help="Debug MLP hidden dim.")
+    parser.add_argument("--feature_dim", default=512, type=int, help="Point embedding dim for raw_lidarseg training.")
     parser.add_argument("--voxel_size", default=(0.2, 0.2, 0.2), nargs=3, type=float, metavar=("VX", "VY", "VZ"))
     parser.add_argument(
         "--point_cloud_range",
@@ -105,8 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--weight_decay", default=1e-4, type=float)
     parser.add_argument("--ce_weight", default=1.0, type=float)
+    parser.add_argument("--class_weights_path", default=None, type=str, help="Optional JSON from compute_class_frequencies.py.")
     parser.add_argument("--distill_weight", default=1.0, type=float)
     parser.add_argument("--dense_logit_weight", default=1.0, type=float)
+    parser.add_argument("--lovasz_weight", default=0.0, type=float, help="Weight for Lovasz-Softmax supervised loss.")
+    parser.add_argument("--dice_weight", default=0.0, type=float, help="Weight for soft Dice supervised loss.")
     parser.add_argument(
         "--text_align_weight",
         default=0.0,
@@ -125,6 +143,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="auto uses all_lidarseg for dense/hybrid teacher modes and base for feature_distill.",
     )
     parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision.")
+    parser.add_argument("--augment", action="store_true", help="Enable supervised LiDAR point augmentations.")
+    parser.add_argument("--aug_rotation_z", default=3.141592653589793, type=float)
+    parser.add_argument("--aug_flip_x_prob", default=0.5, type=float)
+    parser.add_argument("--aug_flip_y_prob", default=0.5, type=float)
+    parser.add_argument("--aug_scale_min", default=0.95, type=float)
+    parser.add_argument("--aug_scale_max", default=1.05, type=float)
+    parser.add_argument("--aug_dropout_prob", default=0.1, type=float)
+    parser.add_argument("--eval_start_idx", default=None, type=int, help="Optional eval start sample index for in-training mIoU.")
+    parser.add_argument("--eval_max_samples", default=0, type=int, help="Number of eval samples for in-training mIoU.")
+    parser.add_argument("--eval_every", default=0, type=int, help="Evaluate and update best checkpoint every N epochs.")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--save_every", default=1, type=int, help="Save checkpoint every N epochs on rank 0.")
     parser.add_argument("--no_shuffle", action="store_true", help="Disable training shuffle.")
@@ -234,6 +262,8 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
         "dense_distill_points",
         "total_loss_sum",
         "ce_loss_sum",
+        "lovasz_loss_sum",
+        "dice_loss_sum",
         "distill_loss_sum",
         "dense_logit_loss_sum",
         "text_align_loss_sum",
@@ -249,6 +279,8 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
     steps = max(reduced["steps"], 1.0)
     reduced["avg_total_loss"] = reduced["total_loss_sum"] / steps
     reduced["avg_ce_loss"] = reduced["ce_loss_sum"] / steps
+    reduced["avg_lovasz_loss"] = reduced["lovasz_loss_sum"] / steps
+    reduced["avg_dice_loss"] = reduced["dice_loss_sum"] / steps
     reduced["avg_distill_loss"] = reduced["distill_loss_sum"] / steps
     reduced["avg_dense_logit_loss"] = reduced["dense_logit_loss_sum"] / steps
     reduced["avg_text_align_loss"] = reduced["text_align_loss_sum"] / steps
@@ -273,6 +305,113 @@ def build_text_prototypes(args: argparse.Namespace, class_names: list[str], torc
         normalize=True,
     )
     return torch_module.from_numpy(text_result["text_embeddings"]).float().to(device)
+
+
+def load_class_weights(args: argparse.Namespace, num_output_classes: int, torch_module, device):
+    if args.class_weights_path is None:
+        return None, {}
+    weight_path = Path(args.class_weights_path).expanduser().resolve()
+    if not weight_path.exists():
+        raise FileNotFoundError(f"class weights json not found: {weight_path}")
+    data = load_json(weight_path)
+    key = "raw_class_weights" if num_output_classes == len(data.get("class_names", [])) else "train_class_weights"
+    weights = data.get(key)
+    if weights is None:
+        raise ValueError(f"class weights json missing key: {key}")
+    if len(weights) != num_output_classes:
+        raise ValueError(f"{key} length mismatch: weights={len(weights)}, num_output_classes={num_output_classes}")
+    tensor = torch_module.as_tensor(weights, dtype=torch_module.float32, device=device)
+    return tensor, {"path": str(weight_path), "key": key, "num_weights": int(tensor.numel())}
+
+
+def map_output_predictions_to_lidarseg(pred_indices: np.ndarray, student_output_space: str, class_split) -> np.ndarray:
+    if student_output_space == "all_lidarseg":
+        return pred_indices.astype(np.int64)
+    mapped = np.full(pred_indices.shape, -1, dtype=np.int64)
+    train_to_label = np.asarray(class_split.train_id_to_label_id, dtype=np.int64)
+    valid = (pred_indices >= 0) & (pred_indices < train_to_label.shape[0])
+    mapped[valid] = train_to_label[pred_indices[valid]]
+    return mapped
+
+
+def finite_float_or_none(value: float) -> float | None:
+    return float(value) if math.isfinite(float(value)) else None
+
+
+def evaluate_model_on_loader(
+    model,
+    loader,
+    torch_module,
+    device,
+    class_split,
+    ce_label_key: str,
+    student_output_space: str,
+) -> dict[str, Any]:
+    was_training = model.training
+    model.eval()
+    num_classes = class_split.num_classes
+    total_intersections = np.zeros(num_classes, dtype=np.int64)
+    total_unions = np.zeros(num_classes, dtype=np.int64)
+    total_gt_counts = np.zeros(num_classes, dtype=np.int64)
+    total_points = 0
+    total_valid_pred_points = 0
+
+    with torch_module.no_grad():
+        for batch in loader:
+            torch_batch = numpy_batch_to_torch(batch, torch_module, device)
+            outputs = model(torch_batch)
+            model_valid_mask = outputs.get(
+                "model_valid_mask",
+                torch_module.ones_like(torch_batch[ce_label_key], dtype=torch_module.bool),
+            )
+            pred_output = torch_module.argmax(outputs["logits"], dim=1).detach().cpu().numpy().astype(np.int64)
+            model_valid_np = model_valid_mask.detach().cpu().numpy().astype(bool)
+            pred_labels = map_output_predictions_to_lidarseg(pred_output, student_output_space, class_split)
+            pred_labels[~model_valid_np] = -1
+
+            if student_output_space == "all_lidarseg":
+                gt_labels = torch_batch["all_class_train_labels"].detach().cpu().numpy().astype(np.int64)
+            else:
+                gt_labels = np.asarray(batch["raw_labels"], dtype=np.int64)
+                valid_base = torch_batch["train_labels"].detach().cpu().numpy().astype(np.int64) != IGNORE_INDEX
+                gt_labels[~valid_base] = IGNORE_INDEX
+            valid_gt_mask = gt_labels != IGNORE_INDEX
+            intersections, unions, gt_counts = segmentation_intersections_unions(
+                pred_labels=pred_labels,
+                gt_labels=gt_labels,
+                num_classes=num_classes,
+                valid_gt_mask=valid_gt_mask,
+            )
+            total_intersections += intersections
+            total_unions += unions
+            total_gt_counts += gt_counts
+            total_points += int(gt_labels.shape[0])
+            total_valid_pred_points += int(np.sum((pred_labels >= 0) & (pred_labels < num_classes)))
+
+    if was_training:
+        model.train()
+    ious = safe_iou(total_intersections, total_unions)
+    eval_ids = np.asarray(class_split.base_label_ids, dtype=np.int64)
+    all_miou = mean_iou_for_ids(ious, eval_ids)
+    base_miou = mean_iou_for_ids(ious, class_split.base_label_ids)
+    novel_miou = (
+        float("nan")
+        if class_split.novel_label_ids.shape[0] == 0
+        else mean_iou_for_ids(ious, class_split.novel_label_ids)
+    )
+    return {
+        "all_miou": finite_float_or_none(all_miou),
+        "base_miou": finite_float_or_none(base_miou),
+        "novel_miou": finite_float_or_none(novel_miou),
+        "num_points": int(total_points),
+        "num_valid_pred_points": int(total_valid_pred_points),
+        "prediction_coverage": float(total_valid_pred_points / max(total_points, 1)),
+        "per_class_iou": [
+            None if not np.isfinite(float(value)) else float(value)
+            for value in ious.tolist()
+        ],
+        "gt_counts": total_gt_counts.astype(int).tolist(),
+    }
 
 
 def save_checkpoint(
@@ -323,6 +462,24 @@ def main() -> int:
         raise ValueError("--dense_temperature must be positive.")
     if args.text_align_weight < 0:
         raise ValueError("--text_align_weight must be non-negative.")
+    if args.lovasz_weight < 0 or args.dice_weight < 0:
+        raise ValueError("--lovasz_weight and --dice_weight must be non-negative.")
+    if args.feature_dim <= 0:
+        raise ValueError("--feature_dim must be positive.")
+    if args.data_source == "raw_lidarseg" and (args.distill_weight > 0.0 or args.dense_logit_weight > 0.0):
+        raise ValueError(
+            "raw_lidarseg reads only LiDAR/lidarseg and cannot use 2D feature or dense-logit distillation. "
+            "Set --distill_weight 0.0 and --dense_logit_weight 0.0."
+        )
+    if args.augment and (args.distill_weight > 0.0 or args.dense_logit_weight > 0.0):
+        raise ValueError(
+            "--augment changes point coordinates and must not be combined with nonzero "
+            "--distill_weight or --dense_logit_weight because 2D teacher signals are tied to original projections."
+        )
+    if args.eval_every < 0:
+        raise ValueError("--eval_every must be >= 0.")
+    if args.eval_every > 0 and (args.eval_start_idx is None or args.eval_max_samples <= 0):
+        raise ValueError("--eval_every requires --eval_start_idx and --eval_max_samples > 0.")
 
     backbone_spec = describe_backbone(args.backbone)
     distributed_state = setup_distributed(torch, args.ddp_backend)
@@ -341,37 +498,43 @@ def main() -> int:
         start_idx=args.start_idx,
         max_samples=max_samples,
     )
-    missing_precomputed = find_missing_precomputed_files(
-        sample_indices=sample_indices,
-        point_feature_dir=args.point_feature_dir,
-        reliability_dir=args.reliability_dir,
-    )
-    if missing_precomputed:
-        missing_sample_indices = {int(item["sample_idx"]) for item in missing_precomputed}
-        if args.skip_missing_precomputed:
-            original_count = len(sample_indices)
-            sample_indices = [idx for idx in sample_indices if idx not in missing_sample_indices]
-            if not sample_indices:
+    if args.data_source == "precomputed":
+        missing_precomputed = find_missing_precomputed_files(
+            sample_indices=sample_indices,
+            point_feature_dir=args.point_feature_dir,
+            reliability_dir=args.reliability_dir,
+        )
+        if missing_precomputed:
+            missing_sample_indices = {int(item["sample_idx"]) for item in missing_precomputed}
+            if args.skip_missing_precomputed:
+                original_count = len(sample_indices)
+                sample_indices = [idx for idx in sample_indices if idx not in missing_sample_indices]
+                if not sample_indices:
+                    raise FileNotFoundError(
+                        "All requested samples are missing precomputed point features or reliability outputs."
+                    )
+                if main_process:
+                    logger.warning(
+                        "skipping %d/%d samples missing precomputed outputs; first_missing_sample=%s",
+                        len(missing_precomputed),
+                        original_count,
+                        missing_precomputed[0]["sample_idx"],
+                    )
+            else:
+                first_missing = missing_precomputed[0]
                 raise FileNotFoundError(
-                    "All requested samples are missing precomputed point features or reliability outputs."
+                    "Training requires precomputed outputs from MVP-v1/v2 for every requested sample. "
+                    f"Missing {len(missing_precomputed)} sample(s); first missing sample_idx="
+                    f"{first_missing['sample_idx']}:\n{first_missing['missing_files']}\n"
+                    "Either precompute that sample range first, lower --max_samples, pass "
+                    "--skip_missing_precomputed for a smoke test, or use --data_source raw_lidarseg "
+                    "for supervised closed-set training."
                 )
-            if main_process:
-                logger.warning(
-                    "skipping %d/%d samples missing precomputed outputs; first_missing_sample=%s",
-                    len(missing_precomputed),
-                    original_count,
-                    missing_precomputed[0]["sample_idx"],
-                )
-        else:
-            first_missing = missing_precomputed[0]
-            raise FileNotFoundError(
-                "Training requires precomputed outputs from MVP-v1/v2 for every requested sample. "
-                f"Missing {len(missing_precomputed)} sample(s); first missing sample_idx="
-                f"{first_missing['sample_idx']}:\n{first_missing['missing_files']}\n"
-                "Either precompute that sample range first, lower --max_samples, or pass "
-                "--skip_missing_precomputed for a smoke test."
-            )
-    load_dense_logits = args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
+    load_dense_logits = (
+        args.data_source == "precomputed"
+        and args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
+        and args.dense_logit_weight > 0.0
+    )
     if load_dense_logits:
         missing_dense = find_missing_dense_point_files(
             sample_indices=sample_indices,
@@ -395,19 +558,90 @@ def main() -> int:
     )
     ce_label_key = "all_class_train_labels" if student_output_space == "all_lidarseg" else "train_labels"
     max_points = None if args.max_points <= 0 else args.max_points
-    train_dataset = PrecomputedPointFeatureDataset(
-        nuscenes_dataset=dataset,
-        sample_indices=sample_indices,
-        point_feature_dir=args.point_feature_dir,
-        reliability_dir=args.reliability_dir,
-        class_split=class_split,
-        dense_point_dir=args.dense_point_dir,
-        load_dense_logits=load_dense_logits,
-        dense_logit_space=student_output_space,
-        max_points=max_points,
-        seed=args.seed,
-        ignore_index=IGNORE_INDEX,
+    augmentation_config = PointAugmentationConfig(
+        rotation_z_max_rad=float(args.aug_rotation_z),
+        flip_x_prob=float(args.aug_flip_x_prob),
+        flip_y_prob=float(args.aug_flip_y_prob),
+        scale_min=float(args.aug_scale_min),
+        scale_max=float(args.aug_scale_max),
+        dropout_prob=float(args.aug_dropout_prob),
     )
+    if args.data_source == "raw_lidarseg":
+        train_dataset = RawLidarsegDataset(
+            nuscenes_dataset=dataset,
+            sample_indices=sample_indices,
+            class_split=class_split,
+            max_points=max_points,
+            seed=args.seed,
+            ignore_index=IGNORE_INDEX,
+            augment=args.augment,
+            augmentation_config=augmentation_config,
+            feature_dim=args.feature_dim,
+        )
+    else:
+        train_dataset = PrecomputedPointFeatureDataset(
+            nuscenes_dataset=dataset,
+            sample_indices=sample_indices,
+            point_feature_dir=args.point_feature_dir,
+            reliability_dir=args.reliability_dir,
+            class_split=class_split,
+            dense_point_dir=args.dense_point_dir,
+            load_dense_logits=load_dense_logits,
+            dense_logit_space=student_output_space,
+            max_points=max_points,
+            seed=args.seed,
+            ignore_index=IGNORE_INDEX,
+            augment=args.augment,
+            augmentation_config=augmentation_config,
+        )
+
+    eval_loader = None
+    eval_sample_indices: list[int] = []
+    if args.eval_every > 0:
+        eval_sample_indices = dataset.resolve_sample_indices(
+            sample_idx=None,
+            start_idx=int(args.eval_start_idx),
+            max_samples=int(args.eval_max_samples),
+        )
+        if args.data_source == "precomputed":
+            missing_eval_precomputed = find_missing_precomputed_files(
+                sample_indices=eval_sample_indices,
+                point_feature_dir=args.point_feature_dir,
+                reliability_dir=args.reliability_dir,
+            )
+            if missing_eval_precomputed:
+                first_missing = missing_eval_precomputed[0]
+                raise FileNotFoundError(
+                    "In-training eval requires precomputed point features/reliability for eval samples. "
+                    f"Missing {len(missing_eval_precomputed)} sample(s); first missing sample_idx="
+                    f"{first_missing['sample_idx']}:\n{first_missing['missing_files']}"
+                )
+        if args.data_source == "raw_lidarseg":
+            eval_dataset = RawLidarsegDataset(
+                nuscenes_dataset=dataset,
+                sample_indices=eval_sample_indices,
+                class_split=class_split,
+                max_points=max_points,
+                seed=args.seed,
+                ignore_index=IGNORE_INDEX,
+                augment=False,
+                feature_dim=args.feature_dim,
+            )
+        else:
+            eval_dataset = PrecomputedPointFeatureDataset(
+                nuscenes_dataset=dataset,
+                sample_indices=eval_sample_indices,
+                point_feature_dir=args.point_feature_dir,
+                reliability_dir=args.reliability_dir,
+                class_split=class_split,
+                dense_point_dir=args.dense_point_dir,
+                load_dense_logits=False,
+                dense_logit_space=student_output_space,
+                max_points=max_points,
+                seed=args.seed,
+                ignore_index=IGNORE_INDEX,
+                augment=False,
+            )
 
     first_sample = train_dataset[0]
     feature_dim = int(first_sample["teacher_features"].shape[1])
@@ -434,6 +668,17 @@ def main() -> int:
         pin_memory=(device.type == "cuda"),
         drop_last=False,
     )
+    if args.eval_every > 0:
+        eval_loader = DataLoader(
+            eval_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            sampler=None,
+            num_workers=args.num_workers,
+            collate_fn=collate_point_feature_samples,
+            pin_memory=(device.type == "cuda"),
+            drop_last=False,
+        )
 
     model = build_segmentor(
         backbone=args.backbone,
@@ -464,18 +709,25 @@ def main() -> int:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     amp_enabled = bool(args.amp and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
-    use_feature_distill = args.teacher_mode in {FEATURE_DISTILL_MODE, HYBRID_TEACHER_MODE}
-    use_dense_logit_distill = args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE}
+    use_feature_distill = args.teacher_mode in {FEATURE_DISTILL_MODE, HYBRID_TEACHER_MODE} and args.distill_weight > 0.0
+    use_dense_logit_distill = (
+        args.teacher_mode in {DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE} and args.dense_logit_weight > 0.0
+    )
     use_text_align = bool(args.text_align_weight > 0.0 and base_text_prototypes is not None)
+    class_weights, class_weight_info = load_class_weights(args, num_output_classes, torch, device)
+    best_eval_miou = -math.inf
+    best_checkpoint_path = ""
+    best_eval_metrics: dict[str, Any] = {}
 
     if main_process:
         logger.info(
             (
-                "train start | backbone=%s | role=%s | teacher_mode=%s | output_space=%s | "
+                "train start | backbone=%s | role=%s | data_source=%s | teacher_mode=%s | output_space=%s | "
                 "text_align=%s | version=%s | samples=%d | device=%s | ddp=%s | world_size=%d"
             ),
             backbone_spec.backbone,
             backbone_spec.role,
+            args.data_source,
             args.teacher_mode,
             student_output_space,
             use_text_align,
@@ -487,9 +739,14 @@ def main() -> int:
         )
         if backbone_spec.is_debug_model:
             logger.warning("debug backbone in use: %s", backbone_spec.description)
+        if class_weight_info:
+            logger.info("class weights enabled | %s", class_weight_info)
+        if args.augment:
+            logger.info("point augmentation enabled | %s", augmentation_config)
 
     epoch_logs: list[dict[str, Any]] = []
     for epoch in range(1, args.epochs + 1):
+        train_dataset.set_epoch(epoch)
         if sampler is not None:
             sampler.set_epoch(epoch)
         model.train()
@@ -501,6 +758,8 @@ def main() -> int:
             "dense_distill_points": 0.0,
             "total_loss_sum": 0.0,
             "ce_loss_sum": 0.0,
+            "lovasz_loss_sum": 0.0,
+            "dice_loss_sum": 0.0,
             "distill_loss_sum": 0.0,
             "dense_logit_loss_sum": 0.0,
             "text_align_loss_sum": 0.0,
@@ -519,7 +778,28 @@ def main() -> int:
                 )
                 effective_train_labels = torch_batch[ce_label_key].clone()
                 effective_train_labels[~model_valid_mask] = IGNORE_INDEX
-                ce_loss = supervised_ce_loss(outputs["logits"], effective_train_labels, ignore_index=IGNORE_INDEX)
+                ce_loss = supervised_ce_loss(
+                    outputs["logits"],
+                    effective_train_labels,
+                    ignore_index=IGNORE_INDEX,
+                    class_weights=class_weights,
+                )
+                if args.lovasz_weight > 0.0:
+                    lovasz_loss = lovasz_softmax_loss(
+                        outputs["logits"],
+                        effective_train_labels,
+                        ignore_index=IGNORE_INDEX,
+                    )
+                else:
+                    lovasz_loss = outputs["logits"].sum() * 0.0
+                if args.dice_weight > 0.0:
+                    supervised_dice_loss = dice_loss(
+                        outputs["logits"],
+                        effective_train_labels,
+                        ignore_index=IGNORE_INDEX,
+                    )
+                else:
+                    supervised_dice_loss = outputs["logits"].sum() * 0.0
                 if use_feature_distill:
                     distill_loss = cosine_distillation_loss(
                         student_features=outputs["point_features"],
@@ -555,6 +835,8 @@ def main() -> int:
 
                 total_loss = (
                     args.ce_weight * ce_loss
+                    + args.lovasz_weight * lovasz_loss
+                    + args.dice_weight * supervised_dice_loss
                     + args.distill_weight * distill_loss
                     + args.dense_logit_weight * dense_logit_loss
                     + args.text_align_weight * text_align_loss
@@ -609,6 +891,8 @@ def main() -> int:
             local_stats["dense_distill_points"] += float(dense_distill_points)
             local_stats["total_loss_sum"] += float(total_loss.detach().cpu().item())
             local_stats["ce_loss_sum"] += float(ce_loss.detach().cpu().item())
+            local_stats["lovasz_loss_sum"] += float(lovasz_loss.detach().cpu().item())
+            local_stats["dice_loss_sum"] += float(supervised_dice_loss.detach().cpu().item())
             local_stats["distill_loss_sum"] += float(distill_loss.detach().cpu().item())
             local_stats["dense_logit_loss_sum"] += float(dense_logit_loss.detach().cpu().item())
             local_stats["text_align_loss_sum"] += float(text_align_loss.detach().cpu().item())
@@ -629,6 +913,8 @@ def main() -> int:
             "dense_distill_points": int(epoch_stats["dense_distill_points"]),
             "avg_total_loss": float(epoch_stats["avg_total_loss"]),
             "avg_ce_loss": float(epoch_stats["avg_ce_loss"]),
+            "avg_lovasz_loss": float(epoch_stats["avg_lovasz_loss"]),
+            "avg_dice_loss": float(epoch_stats["avg_dice_loss"]),
             "avg_distill_loss": float(epoch_stats["avg_distill_loss"]),
             "avg_dense_logit_loss": float(epoch_stats["avg_dense_logit_loss"]),
             "avg_text_align_loss": float(epoch_stats["avg_text_align_loss"]),
@@ -639,12 +925,15 @@ def main() -> int:
         if main_process:
             logger.info(
                 (
-                    "epoch=%d | loss=%.6f | ce=%.6f | feature_distill=%.6f | dense_logit=%.6f | text_align=%.6f | "
+                    "epoch=%d | loss=%.6f | ce=%.6f | lovasz=%.6f | dice=%.6f | "
+                    "feature_distill=%.6f | dense_logit=%.6f | text_align=%.6f | "
                     "points=%d | base_points=%d | feature_points=%d | dense_points=%d"
                 ),
                 epoch,
                 epoch_log["avg_total_loss"],
                 epoch_log["avg_ce_loss"],
+                epoch_log["avg_lovasz_loss"],
+                epoch_log["avg_dice_loss"],
                 epoch_log["avg_distill_loss"],
                 epoch_log["avg_dense_logit_loss"],
                 epoch_log["avg_text_align_loss"],
@@ -667,6 +956,48 @@ def main() -> int:
                     distributed_state,
                     backbone_spec,
                 )
+        if eval_loader is not None and epoch % args.eval_every == 0:
+            eval_metrics = evaluate_model_on_loader(
+                model=model,
+                loader=eval_loader,
+                torch_module=torch,
+                device=device,
+                class_split=class_split,
+                ce_label_key=ce_label_key,
+                student_output_space=student_output_space,
+            )
+            epoch_log["eval"] = eval_metrics
+            all_miou_value = eval_metrics.get("all_miou")
+            current_miou = float(all_miou_value) if all_miou_value is not None else float("nan")
+            if main_process:
+                logger.info(
+                    "eval epoch=%d | all_miou=%s | base_miou=%s | novel_miou=%s | coverage=%.6f",
+                    epoch,
+                    eval_metrics.get("all_miou"),
+                    eval_metrics.get("base_miou"),
+                    eval_metrics.get("novel_miou"),
+                    float(eval_metrics.get("prediction_coverage", 0.0)),
+                )
+                if math.isfinite(current_miou) and current_miou > best_eval_miou:
+                    best_eval_miou = current_miou
+                    best_checkpoint = output_dir / f"{args.backbone}_best.pt"
+                    best_eval_metrics = dict(eval_metrics)
+                    best_eval_metrics["epoch"] = epoch
+                    best_checkpoint_path = str(best_checkpoint)
+                    save_checkpoint(
+                        best_checkpoint,
+                        torch,
+                        model,
+                        optimizer,
+                        epoch,
+                        args,
+                        class_split,
+                        best_eval_metrics,
+                        sample_indices,
+                        distributed_state,
+                        backbone_spec,
+                    )
+                    logger.info("new best checkpoint | epoch=%d | all_miou=%.6f | path=%s", epoch, current_miou, best_checkpoint)
 
     if main_process:
         latest_path = output_dir / f"{args.backbone}_latest.pt"
@@ -690,6 +1021,7 @@ def main() -> int:
             "device": str(device),
             "distributed": distributed_state,
             "backbone": backbone_spec.__dict__,
+            "data_source": args.data_source,
             "teacher_mode": args.teacher_mode,
             "student_output_space": student_output_space,
             "num_samples": len(sample_indices),
@@ -713,9 +1045,29 @@ def main() -> int:
             "first_sample_raw_label_hist": raw_hist,
             "loss_weights": {
                 "ce_weight": args.ce_weight,
+                "lovasz_weight": args.lovasz_weight,
+                "dice_weight": args.dice_weight,
                 "distill_weight": args.distill_weight,
                 "dense_logit_weight": args.dense_logit_weight,
                 "text_align_weight": args.text_align_weight,
+            },
+            "class_weights": class_weight_info,
+            "augmentation": {
+                "enabled": args.augment,
+                "rotation_z_max_rad": args.aug_rotation_z,
+                "flip_x_prob": args.aug_flip_x_prob,
+                "flip_y_prob": args.aug_flip_y_prob,
+                "scale_min": args.aug_scale_min,
+                "scale_max": args.aug_scale_max,
+                "dropout_prob": args.aug_dropout_prob,
+            },
+            "eval_during_training": {
+                "enabled": eval_loader is not None,
+                "eval_every": args.eval_every,
+                "eval_sample_indices": eval_sample_indices,
+                "best_eval_miou": None if not math.isfinite(best_eval_miou) else float(best_eval_miou),
+                "best_eval_metrics": best_eval_metrics,
+                "best_checkpoint": best_checkpoint_path,
             },
             "text_alignment": {
                 "enabled": use_text_align,

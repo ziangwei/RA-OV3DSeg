@@ -24,7 +24,7 @@ Teacher registry:
 
 - `debug_point_mlp`: runnable training harness only.
 - `sparse_unet_spconv`: compact sparse-conv student used by V5-V12.
-- `spconv_resunet`: stronger in-repository sparse ResUNet for V13 supervised upper-bound checks.
+- `spconv_resunet`: stronger in-repository sparse ResUNet for V13/V14 supervised upper-bound checks; V14 can train directly from raw LiDAR + lidarseg without 2D precompute caches.
 
 See `docs/ROADMAP.md` for the corrected project path.
 

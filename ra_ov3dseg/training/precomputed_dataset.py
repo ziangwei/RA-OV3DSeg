@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset
+from ra_ov3dseg.training.augmentations import PointAugmentationConfig, augment_point_xyz
 from ra_ov3dseg.training.labels import ClassSplit, map_labels_for_base_ce
 
 
@@ -112,6 +113,8 @@ class PrecomputedPointFeatureDataset:
         max_points: int | None = None,
         seed: int = 0,
         ignore_index: int = IGNORE_INDEX,
+        augment: bool = False,
+        augmentation_config: PointAugmentationConfig | None = None,
     ) -> None:
         if not sample_indices:
             raise ValueError("sample_indices must not be empty.")
@@ -127,6 +130,9 @@ class PrecomputedPointFeatureDataset:
         self.max_points = max_points
         self.seed = seed
         self.ignore_index = ignore_index
+        self.augment = bool(augment)
+        self.augmentation_config = augmentation_config or PointAugmentationConfig()
+        self.epoch = 0
         if self.load_dense_logits and self.dense_point_dir is None:
             raise ValueError("dense_point_dir is required when load_dense_logits=True.")
         if self.dense_logit_space not in {"base", "all_lidarseg"}:
@@ -134,6 +140,9 @@ class PrecomputedPointFeatureDataset:
 
     def __len__(self) -> int:
         return len(self.sample_indices)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         sample_idx = self.sample_indices[index]
@@ -204,11 +213,12 @@ class PrecomputedPointFeatureDataset:
                 )
 
             if self.dense_logit_space == "all_lidarseg":
-                # all_lidarseg 模式下 student 输出 32 个 lidarseg 类；
-                # CE 仍只监督 base 类，dense KL 可以保留 novel 类 teacher 信号。
+                # The student emits the full lidarseg label space. CE still masks
+                # ignored labels, while dense KL can keep teacher signal for all classes.
                 dense_teacher_logits = point_teacher_logits[:, : self.class_split.num_classes].astype(np.float32)
             else:
-                # base 模式只取 base classes，使 student logits 和 base CE train ids 对齐。
+                # Base mode keeps only supervised base classes so student logits
+                # stay aligned with base-class CE train ids.
                 dense_teacher_logits = point_teacher_logits[:, self.class_split.base_label_ids].astype(np.float32)
             dense_teacher_valid_mask = point_dense_valid_mask
             if "point_dense_pred_scores" in dense_data:
@@ -226,19 +236,43 @@ class PrecomputedPointFeatureDataset:
         all_class_train_labels[base_raw_mask] = raw_labels[base_raw_mask].astype(np.int64)
 
         selected = subsample_indices(point_xyz.shape[0], self.max_points, self.seed + sample_idx)
+        point_xyz_selected = point_xyz[selected]
+        teacher_features_selected = teacher_features[selected]
+        teacher_valid_mask_selected = teacher_valid_mask[selected]
+        reliability_weight_selected = reliability_weight[selected]
+        dense_teacher_logits_selected = dense_teacher_logits[selected]
+        dense_teacher_valid_mask_selected = dense_teacher_valid_mask[selected]
+        dense_teacher_confidence_selected = dense_teacher_confidence[selected]
+        raw_labels_selected = raw_labels[selected].astype(np.int64)
+        train_labels_selected = train_labels[selected].astype(np.int64)
+        all_class_train_labels_selected = all_class_train_labels[selected].astype(np.int64)
+
+        if self.augment:
+            rng = np.random.default_rng(self.seed + sample_idx + 1000003 * self.epoch)
+            point_xyz_selected, keep_mask = augment_point_xyz(point_xyz_selected, rng, self.augmentation_config)
+            teacher_features_selected = teacher_features_selected[keep_mask]
+            teacher_valid_mask_selected = teacher_valid_mask_selected[keep_mask]
+            reliability_weight_selected = reliability_weight_selected[keep_mask]
+            dense_teacher_logits_selected = dense_teacher_logits_selected[keep_mask]
+            dense_teacher_valid_mask_selected = dense_teacher_valid_mask_selected[keep_mask]
+            dense_teacher_confidence_selected = dense_teacher_confidence_selected[keep_mask]
+            raw_labels_selected = raw_labels_selected[keep_mask]
+            train_labels_selected = train_labels_selected[keep_mask]
+            all_class_train_labels_selected = all_class_train_labels_selected[keep_mask]
+
         return {
             "sample_idx": sample_idx,
             "sample_token": sample["token"],
-            "point_xyz": point_xyz[selected],
-            "teacher_features": teacher_features[selected],
-            "teacher_valid_mask": teacher_valid_mask[selected],
-            "reliability_weight": reliability_weight[selected],
-            "dense_teacher_logits": dense_teacher_logits[selected],
-            "dense_teacher_valid_mask": dense_teacher_valid_mask[selected],
-            "dense_teacher_confidence": dense_teacher_confidence[selected],
-            "raw_labels": raw_labels[selected].astype(np.int64),
-            "train_labels": train_labels[selected].astype(np.int64),
-            "all_class_train_labels": all_class_train_labels[selected].astype(np.int64),
+            "point_xyz": point_xyz_selected,
+            "teacher_features": teacher_features_selected,
+            "teacher_valid_mask": teacher_valid_mask_selected,
+            "reliability_weight": reliability_weight_selected,
+            "dense_teacher_logits": dense_teacher_logits_selected,
+            "dense_teacher_valid_mask": dense_teacher_valid_mask_selected,
+            "dense_teacher_confidence": dense_teacher_confidence_selected,
+            "raw_labels": raw_labels_selected,
+            "train_labels": train_labels_selected,
+            "all_class_train_labels": all_class_train_labels_selected,
             "num_points_before_subsample": int(point_xyz.shape[0]),
             "point_feature_path": str(point_feature_path),
             "reliability_path": str(reliability_path),

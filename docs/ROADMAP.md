@@ -206,6 +206,22 @@ Decision rule:
 - If supervised `spconv_resunet` is poor, the 3D student capacity or training recipe must be fixed first.
 - Only if both gates are acceptable should the project spend more compute on open-vocabulary distillation.
 
+V14 focuses on the second V13 failure mode: the 3D closed-set upper bound is not
+strong enough yet.
+
+```text
+spconv_resunet
+  -> raw LiDAR + lidarseg labels, no 2D precompute dependency
+  -> class-balanced CE
+  -> Lovasz/Dice optional IoU losses
+  -> basic LiDAR augmentation
+  -> in-training eval
+  -> best checkpoint by eval mIoU
+```
+
+V14 deliberately does not add a new teacher. A stronger teacher should only be
+introduced after the 3D supervised recipe has a credible baseline.
+
 The final experiments should compare:
 
 - CLIP patch baseline.

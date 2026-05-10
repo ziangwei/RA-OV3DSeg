@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="v1",
-        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"],
+        choices=["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
             "v3 training dry-run, v4 train checkpoint, v5 sparse backbone checkpoint, "
@@ -33,7 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
             "v9 mini experiment protocol, v10 open-vocabulary inference/eval, "
             "v11 text-aligned 3D embedding training/eval, "
             "v12 GroupViT dense teacher training/eval, "
-            "v13 teacher-quality and supervised-backbone diagnostics."
+            "v13 teacher-quality and supervised-backbone diagnostics, "
+            "v14 improved supervised 3D recipe."
         ),
     )
     parser.add_argument(
@@ -1272,6 +1273,79 @@ def verify_diagnostics_v13(outputs_dir: Path, args, checks: list[dict[str, Any]]
         )
 
 
+def verify_supervised_recipe_v14(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v14_supervised_resunet_128"
+    )
+    class_freq_path = experiment_dir / "class_frequencies.json"
+    training_dir = experiment_dir / "training"
+    training_summary_path = training_dir / "train_summary.json"
+    best_checkpoint = training_dir / "spconv_resunet_best.pt"
+    latest_checkpoint = training_dir / "spconv_resunet_latest.pt"
+    eval_summary_path = experiment_dir / "evaluation3d" / "batch_3d_eval_summary.json"
+
+    if check_file(class_freq_path, checks, "v14_class_frequencies_json"):
+        class_freq = load_json(class_freq_path)
+        has_weights = "raw_class_weights" in class_freq and "train_class_weights" in class_freq
+        add_check(
+            checks,
+            "v14_class_frequency_weights",
+            has_weights,
+            f"keys={sorted(class_freq.keys())}",
+            {key: class_freq.get(key) for key in ["num_samples_used", "raw_counts", "raw_class_weights"]},
+        )
+
+    if check_file(training_summary_path, checks, "v14_training_summary_json"):
+        training_summary = load_json(training_summary_path)
+        backbone = training_summary.get("backbone", {})
+        loss_weights = training_summary.get("loss_weights", {})
+        class_weights = training_summary.get("class_weights", {})
+        augmentation = training_summary.get("augmentation", {})
+        eval_info = training_summary.get("eval_during_training", {})
+        epoch_logs = training_summary.get("epoch_logs", [])
+        final_epoch = epoch_logs[-1] if epoch_logs else {}
+        add_check(
+            checks,
+            "v14_data_source_raw_lidarseg",
+            training_summary.get("data_source") == "raw_lidarseg",
+            f"data_source={training_summary.get('data_source')}",
+            training_summary.get("data_source"),
+        )
+        add_check(checks, "v14_backbone", backbone.get("backbone") == "spconv_resunet", f"backbone={backbone.get('backbone')}", backbone)
+        add_check(
+            checks,
+            "v14_lovasz_or_dice_enabled",
+            float(loss_weights.get("lovasz_weight", 0.0)) > 0.0 or float(loss_weights.get("dice_weight", 0.0)) > 0.0,
+            f"loss_weights={loss_weights}",
+            loss_weights,
+        )
+        add_check(checks, "v14_class_weights_enabled", bool(class_weights), f"class_weights={class_weights}", class_weights)
+        add_check(checks, "v14_augmentation_recorded", "enabled" in augmentation, f"augmentation={augmentation}", augmentation)
+        add_check(checks, "v14_eval_during_training", bool(eval_info.get("enabled", False)), f"eval={eval_info}", eval_info)
+        add_check(
+            checks,
+            "v14_epoch_logs",
+            bool(epoch_logs) and "avg_lovasz_loss" in final_epoch and "eval" in final_epoch,
+            f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
+            final_epoch,
+        )
+    check_file(best_checkpoint, checks, "v14_best_checkpoint")
+    check_file(latest_checkpoint, checks, "v14_latest_checkpoint")
+
+    if check_file(eval_summary_path, checks, "v14_eval_summary_json"):
+        eval_summary = load_json(eval_summary_path)
+        metrics = eval_summary.get("aggregate_metrics", {})
+        add_check(
+            checks,
+            "v14_eval_metrics",
+            {"all_miou", "base_miou", "prediction_coverage"}.issubset(metrics.keys()),
+            f"metrics_keys={sorted(metrics.keys())}",
+            metrics,
+        )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -1279,7 +1353,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage not in {"v9", "v10", "v11", "v12", "v13"}:
+    if args.stage not in {"v9", "v10", "v11", "v12", "v13", "v14"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -1313,6 +1387,8 @@ def main() -> int:
         verify_open_vocab_v10(outputs_dir, args, checks)
     if args.stage == "v13":
         verify_diagnostics_v13(outputs_dir, args, checks)
+    if args.stage == "v14":
+        verify_supervised_recipe_v14(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]

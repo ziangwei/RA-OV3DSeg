@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ra_ov3dseg.models.segmentor_factory import build_segmentor  # noqa: E402
+from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
 from ra_ov3dseg.utils.io import ensure_dir, load_text_lines, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 from ra_ov3dseg.visualization.visualize_points import (  # noqa: E402
@@ -26,6 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int, help="Single sample index.")
     parser.add_argument("--start_idx", default=0, type=int, help="Batch start sample index.")
     parser.add_argument("--max_samples", default=1, type=int, help="Number of samples in batch mode.")
+    parser.add_argument("--dataroot", default=None, type=str, help="nuScenes dataroot for --input_source raw_lidarseg.")
+    parser.add_argument("--version", default="v1.0-trainval", type=str)
+    parser.add_argument(
+        "--input_source",
+        default="precomputed",
+        choices=["precomputed", "raw_lidarseg"],
+        help="precomputed reads point_feature_npz/dir; raw_lidarseg reads LiDAR directly from nuScenes.",
+    )
     parser.add_argument("--point_feature_npz", default=None, type=str, help="Explicit point feature npz for one sample.")
     parser.add_argument("--point_feature_dir", default="outputs/point_features", type=str)
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
@@ -160,11 +169,30 @@ def main() -> int:
     if output_space == "unknown":
         raise ValueError(f"Cannot infer output space from num_output_classes={num_output_classes}.")
 
-    point_feature_paths = build_point_feature_paths(args)
+    dataset = None
+    if args.input_source == "raw_lidarseg":
+        if args.dataroot is None:
+            raise ValueError("--input_source raw_lidarseg requires --dataroot.")
+        dataset = NuScenesDataset(args.dataroot, version=args.version, verbose=True)
+        sample_indices = dataset.resolve_sample_indices(
+            sample_idx=args.sample_idx,
+            start_idx=args.start_idx,
+            max_samples=args.max_samples,
+        )
+        prediction_inputs: list[dict[str, Any]] = [
+            {"input_source": "raw_lidarseg", "sample_idx": int(sample_idx)} for sample_idx in sample_indices
+        ]
+    else:
+        point_feature_paths = build_point_feature_paths(args)
+        prediction_inputs = [
+            {"input_source": "precomputed", "point_feature_path": point_feature_path}
+            for point_feature_path in point_feature_paths
+        ]
     batch_summary: dict[str, Any] = {
         "checkpoint": str(checkpoint_path),
         "backbone": backbone,
         "output_space": output_space,
+        "input_source": args.input_source,
         "outputs": [],
     }
 
@@ -177,11 +205,23 @@ def main() -> int:
         device,
     )
 
-    for point_feature_path in point_feature_paths:
-        if not point_feature_path.exists():
-            raise FileNotFoundError(f"point feature npz not found: {point_feature_path}")
-        point_data = load_npz(point_feature_path)
-        sample_idx = int(point_data["sample_idx"].item())
+    for prediction_input in prediction_inputs:
+        if prediction_input["input_source"] == "raw_lidarseg":
+            assert dataset is not None
+            sample_idx = int(prediction_input["sample_idx"])
+            sample = dataset.get_sample_by_index(sample_idx)
+            point_xyz = dataset.load_lidar_points(sample).astype(np.float32)
+            sample_token = np.asarray(sample["token"])
+            point_feature_ref = ""
+        else:
+            point_feature_path = Path(prediction_input["point_feature_path"])
+            if not point_feature_path.exists():
+                raise FileNotFoundError(f"point feature npz not found: {point_feature_path}")
+            point_data = load_npz(point_feature_path)
+            sample_idx = int(point_data["sample_idx"].item())
+            point_xyz = point_data["point_xyz"].astype(np.float32)
+            sample_token = point_data["sample_token"]
+            point_feature_ref = str(point_feature_path)
         prefix = f"sample_{sample_idx:04d}"
         output_npz = output_dir / f"{prefix}_3d_predictions.npz"
         summary_json = output_dir / f"{prefix}_3d_prediction_summary.json"
@@ -194,7 +234,6 @@ def main() -> int:
             )
             continue
 
-        point_xyz = point_data["point_xyz"].astype(np.float32)
         torch_batch = {
             "point_xyz": torch.from_numpy(point_xyz).to(device),
             "point_batch_indices": torch.zeros(point_xyz.shape[0], dtype=torch.long, device=device),
@@ -237,7 +276,7 @@ def main() -> int:
 
         save_kwargs: dict[str, Any] = {
             "sample_idx": np.array(sample_idx, dtype=np.int32),
-            "sample_token": point_data["sample_token"],
+            "sample_token": sample_token,
             "point_xyz": point_xyz,
             "model_valid_mask": model_valid_mask,
             "pred_output_indices": pred_output_indices,
@@ -248,6 +287,7 @@ def main() -> int:
             "backbone": np.asarray(backbone),
             "teacher_mode": np.asarray(checkpoint.get("args", {}).get("teacher_mode", "")),
             "student_output_space": np.asarray(output_space),
+            "input_source": np.asarray(args.input_source),
             "feature_dim": np.array(feature_dim, dtype=np.int32),
             "num_output_classes": np.array(num_output_classes, dtype=np.int32),
         }
@@ -262,7 +302,7 @@ def main() -> int:
                 class_hist[class_name] = count
         summary = {
             "sample_idx": sample_idx,
-            "sample_token": scalar_to_str(point_data["sample_token"]),
+            "sample_token": scalar_to_str(sample_token),
             "checkpoint": str(checkpoint_path),
             "backbone": backbone,
             "teacher_mode": str(checkpoint.get("args", {}).get("teacher_mode", "")),
@@ -273,7 +313,8 @@ def main() -> int:
             "num_valid_predictions": int(valid_prediction_mask.sum()),
             "valid_prediction_ratio": float(valid_prediction_mask.sum() / max(point_xyz.shape[0], 1)),
             "class_hist": class_hist,
-            "point_feature_npz": str(point_feature_path),
+            "point_feature_npz": point_feature_ref,
+            "input_source": args.input_source,
             "output_npz": str(output_npz),
             "ply_path": str(ply_path),
             "bev_path": str(bev_path),
@@ -296,7 +337,7 @@ def main() -> int:
             }
         )
 
-    if len(point_feature_paths) > 1:
+    if len(prediction_inputs) > 1:
         batch_summary_path = output_dir / "batch_3d_prediction_summary.json"
         save_json(batch_summary_path, batch_summary)
         logger.info("batch prediction summary saved to: %s", batch_summary_path)
