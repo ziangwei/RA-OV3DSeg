@@ -102,6 +102,25 @@ class NuScenesDataset:
         lidar_point_cloud = LidarPointCloud.from_file(str(lidar_path))
         return lidar_point_cloud.points[:3, :].T.astype(np.float32)
 
+    def load_lidar_points_xyzi(self, sample: dict[str, Any]) -> np.ndarray:
+        lidar_path = self.get_sample_data_path_from_channel(sample, "LIDAR_TOP")
+        if lidar_path is None:
+            raise KeyError("sample does not contain LIDAR_TOP")
+        if not lidar_path.exists():
+            raise FileNotFoundError(f"LiDAR file not found: {lidar_path}")
+
+        lidar_point_cloud = LidarPointCloud.from_file(str(lidar_path))
+        points = lidar_point_cloud.points.T.astype(np.float32)
+        if points.shape[1] < 4:
+            intensity = np.zeros((points.shape[0], 1), dtype=np.float32)
+            return np.concatenate([points[:, :3], intensity], axis=1)
+        xyzi = points[:, :4].astype(np.float32)
+        intensity = np.nan_to_num(xyzi[:, 3], nan=0.0, posinf=0.0, neginf=0.0)
+        if intensity.size > 0 and float(np.max(intensity)) > 1.0:
+            intensity = intensity / 255.0
+        xyzi[:, 3] = np.clip(intensity, 0.0, 1.0).astype(np.float32)
+        return xyzi
+
     def get_lidarseg_record(self, sample: dict[str, Any]) -> dict[str, Any] | None:
         lidar_token = self.get_sensor_token(sample, "LIDAR_TOP")
         if lidar_token is None:

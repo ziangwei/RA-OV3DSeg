@@ -210,7 +210,9 @@ def main() -> int:
             assert dataset is not None
             sample_idx = int(prediction_input["sample_idx"])
             sample = dataset.get_sample_by_index(sample_idx)
-            point_xyz = dataset.load_lidar_points(sample).astype(np.float32)
+            point_xyzi = dataset.load_lidar_points_xyzi(sample).astype(np.float32)
+            point_xyz = point_xyzi[:, :3]
+            point_input_features = point_xyzi[:, 3:4]
             sample_token = np.asarray(sample["token"])
             point_feature_ref = ""
         else:
@@ -220,6 +222,10 @@ def main() -> int:
             point_data = load_npz(point_feature_path)
             sample_idx = int(point_data["sample_idx"].item())
             point_xyz = point_data["point_xyz"].astype(np.float32)
+            if "point_input_features" in point_data:
+                point_input_features = point_data["point_input_features"].astype(np.float32)
+            else:
+                point_input_features = np.zeros((point_xyz.shape[0], 1), dtype=np.float32)
             sample_token = point_data["sample_token"]
             point_feature_ref = str(point_feature_path)
         prefix = f"sample_{sample_idx:04d}"
@@ -236,6 +242,7 @@ def main() -> int:
 
         torch_batch = {
             "point_xyz": torch.from_numpy(point_xyz).to(device),
+            "point_input_features": torch.from_numpy(point_input_features).float().to(device),
             "point_batch_indices": torch.zeros(point_xyz.shape[0], dtype=torch.long, device=device),
         }
         with torch.no_grad():
@@ -278,6 +285,7 @@ def main() -> int:
             "sample_idx": np.array(sample_idx, dtype=np.int32),
             "sample_token": sample_token,
             "point_xyz": point_xyz,
+            "point_input_features": point_input_features,
             "model_valid_mask": model_valid_mask,
             "pred_output_indices": pred_output_indices,
             "pred_label_indices": pred_label_indices,

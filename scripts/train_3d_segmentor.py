@@ -226,6 +226,7 @@ def numpy_batch_to_torch(batch: dict[str, Any], torch_module, device) -> dict[st
         "sample_indices": batch["sample_indices"],
         "sample_tokens": batch["sample_tokens"],
         "point_xyz": torch_module.from_numpy(batch["point_xyz"]).to(device, non_blocking=True),
+        "point_input_features": torch_module.from_numpy(batch["point_input_features"]).float().to(device, non_blocking=True),
         "point_batch_indices": torch_module.from_numpy(batch["point_batch_indices"]).long().to(device, non_blocking=True),
         "teacher_features": torch_module.from_numpy(batch["teacher_features"]).to(device, non_blocking=True),
         "teacher_valid_mask": torch_module.from_numpy(batch["teacher_valid_mask"]).bool().to(device, non_blocking=True),

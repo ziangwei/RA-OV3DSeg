@@ -222,6 +222,19 @@ spconv_resunet
 V14 deliberately does not add a new teacher. A stronger teacher should only be
 introduced after the 3D supervised recipe has a credible baseline.
 
+V15 stops treating the in-house Cartesian ResUNet as the final backbone and
+switches the supervised baseline to a Cylinder3D-style sparse backbone:
+
+```text
+raw LiDAR xyz + intensity
+  -> cylindrical voxel grid [radius, azimuth, z]
+  -> asymmetric spconv residual U-Net
+  -> point-level lidarseg logits
+```
+
+This is the current default path for making the closed-set baseline credible
+before any further open-vocabulary or reliability-distillation claims.
+
 The final experiments should compare:
 
 - CLIP patch baseline.

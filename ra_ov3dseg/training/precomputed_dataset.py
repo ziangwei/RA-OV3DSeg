@@ -264,6 +264,7 @@ class PrecomputedPointFeatureDataset:
             "sample_idx": sample_idx,
             "sample_token": sample["token"],
             "point_xyz": point_xyz_selected,
+            "point_input_features": np.zeros((point_xyz_selected.shape[0], 1), dtype=np.float32),
             "teacher_features": teacher_features_selected,
             "teacher_valid_mask": teacher_valid_mask_selected,
             "reliability_weight": reliability_weight_selected,
@@ -291,6 +292,7 @@ def collate_point_feature_samples(samples: list[dict[str, Any]]) -> dict[str, An
         "sample_indices": [int(sample["sample_idx"]) for sample in samples],
         "sample_tokens": [str(sample["sample_token"]) for sample in samples],
         "point_xyz": cat_array("point_xyz").astype(np.float32),
+        "point_input_features": cat_array("point_input_features").astype(np.float32),
         "point_batch_indices": np.concatenate(
             [
                 np.full(sample["point_xyz"].shape[0], batch_idx, dtype=np.int64)

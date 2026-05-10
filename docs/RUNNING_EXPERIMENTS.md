@@ -340,3 +340,46 @@ outputs/experiments/trainval_v14_supervised_resunet_128/training/train_summary.j
 outputs/experiments/trainval_v14_supervised_resunet_128/training/spconv_resunet_best.pt
 outputs/experiments/trainval_v14_supervised_resunet_128/evaluation3d/batch_3d_eval_summary.json
 ```
+
+## V15 Cylinder Baseline
+
+V15 is the current supervised baseline direction. It directly replaces the
+Cartesian `spconv_resunet` with `cylinder_spconv_unet`, a Cylinder3D-style
+spconv backbone that uses raw LiDAR intensity and cylindrical voxelization.
+
+Smoke run:
+
+```bash
+bash scripts/run_v15_cylinder_baseline.sh \
+  --experiment_name trainval_v15_cylinder_smoke \
+  --train_max_samples 8 \
+  --eval_start_idx 128 \
+  --eval_max_samples 8 \
+  --epochs 2 \
+  --sparse_base_channels 16
+```
+
+Default 1024-sample run:
+
+```bash
+bash scripts/run_v15_cylinder_baseline.sh
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v15 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v15_cylinder_1024 \
+  --output_dir outputs/verification
+```
+
+Key files:
+
+```text
+outputs/experiments/trainval_v15_cylinder_1024/class_frequencies.json
+outputs/experiments/trainval_v15_cylinder_1024/training/train_summary.json
+outputs/experiments/trainval_v15_cylinder_1024/training/cylinder_spconv_unet_best.pt
+outputs/experiments/trainval_v15_cylinder_1024/evaluation3d/batch_3d_eval_summary.json
+```

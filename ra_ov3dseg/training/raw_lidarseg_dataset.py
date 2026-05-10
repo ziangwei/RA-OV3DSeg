@@ -55,7 +55,9 @@ class RawLidarsegDataset:
     def __getitem__(self, index: int) -> dict[str, Any]:
         sample_idx = self.sample_indices[index]
         sample = self.nuscenes_dataset.get_sample_by_index(sample_idx)
-        point_xyz = self.nuscenes_dataset.load_lidar_points(sample).astype(np.float32)
+        point_xyzi = self.nuscenes_dataset.load_lidar_points_xyzi(sample).astype(np.float32)
+        point_xyz = point_xyzi[:, :3]
+        point_input_features = point_xyzi[:, 3:4]
         raw_labels = self.nuscenes_dataset.load_lidarseg_labels(sample)
         if raw_labels is None:
             raise FileNotFoundError(f"lidarseg labels not found for sample_idx={sample_idx}")
@@ -72,6 +74,7 @@ class RawLidarsegDataset:
 
         selected = subsample_indices(point_xyz.shape[0], self.max_points, self.seed + sample_idx)
         point_xyz_selected = point_xyz[selected]
+        point_input_features_selected = point_input_features[selected]
         raw_labels_selected = raw_labels[selected].astype(np.int64)
         train_labels_selected = train_labels[selected].astype(np.int64)
         all_class_train_labels_selected = all_class_train_labels[selected].astype(np.int64)
@@ -79,6 +82,7 @@ class RawLidarsegDataset:
         if self.augment:
             rng = np.random.default_rng(self.seed + sample_idx + 1000003 * self.epoch)
             point_xyz_selected, keep_mask = augment_point_xyz(point_xyz_selected, rng, self.augmentation_config)
+            point_input_features_selected = point_input_features_selected[keep_mask]
             raw_labels_selected = raw_labels_selected[keep_mask]
             train_labels_selected = train_labels_selected[keep_mask]
             all_class_train_labels_selected = all_class_train_labels_selected[keep_mask]
@@ -88,6 +92,7 @@ class RawLidarsegDataset:
             "sample_idx": sample_idx,
             "sample_token": sample["token"],
             "point_xyz": point_xyz_selected,
+            "point_input_features": point_input_features_selected.astype(np.float32),
             "teacher_features": np.zeros((num_points, self.feature_dim), dtype=np.float32),
             "teacher_valid_mask": np.zeros(num_points, dtype=bool),
             "reliability_weight": np.zeros(num_points, dtype=np.float32),
