@@ -61,4 +61,4 @@ def augment_point_xyz(
         if not np.any(keep_mask):
             keep_mask[int(rng.integers(0, augmented.shape[0]))] = True
 
-    return augmented, keep_mask
+    return augmented[keep_mask], keep_mask
