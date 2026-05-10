@@ -8,6 +8,7 @@ train_summary.json
 batch_3d_eval_summary.json
 PROJECT_STATUS_FOR_REVIEW.md
 RA_OV3DSeg_ACTION_PLAN.md
+RA_OV3DSeg_V16_V18_PLAN.md
 __pycache__/
 .DS_Store
 *.pyc

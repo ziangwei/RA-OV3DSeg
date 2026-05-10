@@ -10,6 +10,67 @@ from ra_ov3dseg.utils.config import load_yaml_config
 from ra_ov3dseg.utils.io import load_text_lines
 
 
+NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES = [
+    "void",
+    "barrier",
+    "bicycle",
+    "bus",
+    "car",
+    "construction_vehicle",
+    "motorcycle",
+    "pedestrian",
+    "traffic_cone",
+    "trailer",
+    "truck",
+    "driveable_surface",
+    "other_flat",
+    "sidewalk",
+    "terrain",
+    "manmade",
+    "vegetation",
+]
+
+# nuScenes-lidarseg stores 32 raw labels, while the official lidarseg challenge
+# evaluates 16 merged classes plus index 0 as void/ignore.
+NUSCENES_RAW_TO_OFFICIAL_16 = np.asarray(
+    [
+        0,  # noise -> void
+        0,  # animal -> void
+        7,  # human.pedestrian.adult -> pedestrian
+        7,  # human.pedestrian.child -> pedestrian
+        7,  # human.pedestrian.construction_worker -> pedestrian
+        0,  # human.pedestrian.personal_mobility -> void
+        7,  # human.pedestrian.police_officer -> pedestrian
+        0,  # human.pedestrian.stroller -> void
+        0,  # human.pedestrian.wheelchair -> void
+        1,  # movable_object.barrier -> barrier
+        0,  # movable_object.debris -> void
+        0,  # movable_object.pushable_pullable -> void
+        8,  # movable_object.trafficcone -> traffic_cone
+        0,  # static_object.bicycle_rack -> void
+        2,  # vehicle.bicycle -> bicycle
+        3,  # vehicle.bus.bendy -> bus
+        3,  # vehicle.bus.rigid -> bus
+        4,  # vehicle.car -> car
+        5,  # vehicle.construction -> construction_vehicle
+        0,  # vehicle.emergency.ambulance -> void
+        0,  # vehicle.emergency.police -> void
+        6,  # vehicle.motorcycle -> motorcycle
+        9,  # vehicle.trailer -> trailer
+        10,  # vehicle.truck -> truck
+        11,  # flat.driveable_surface -> driveable_surface
+        12,  # flat.other -> other_flat
+        13,  # flat.sidewalk -> sidewalk
+        14,  # terrain -> terrain
+        15,  # static.manmade -> manmade
+        0,  # static.other -> void
+        16,  # static.vegetation -> vegetation
+        0,  # vehicle.ego -> void
+    ],
+    dtype=np.int64,
+)
+
+
 @dataclass(frozen=True)
 class ClassSplit:
     class_names: list[str]
@@ -83,4 +144,31 @@ def map_labels_for_base_ce(labels: np.ndarray, class_split: ClassSplit, ignore_i
     train_ids[valid] = class_split.label_id_to_train_id[labels[valid]]
     base_mask = train_ids >= 0
     mapped[base_mask] = train_ids[base_mask]
+    return mapped
+
+
+def map_raw_lidarseg_to_official_16(raw_labels: np.ndarray) -> np.ndarray:
+    """Map nuScenes-lidarseg raw 32-class ids to official 16-class ids.
+
+    Output ids follow the nuScenes lidarseg challenge convention:
+    0 is void/ignore, and 1..16 are evaluated semantic classes.
+    """
+
+    raw_labels = raw_labels.astype(np.int64)
+    mapped = np.zeros(raw_labels.shape, dtype=np.int64)
+    valid = (raw_labels >= 0) & (raw_labels < NUSCENES_RAW_TO_OFFICIAL_16.shape[0])
+    mapped[valid] = NUSCENES_RAW_TO_OFFICIAL_16[raw_labels[valid]]
+    return mapped
+
+
+def map_official_16_for_ce(official_labels: np.ndarray, ignore_index: int = -100) -> np.ndarray:
+    """Convert official lidarseg ids to contiguous CE ids.
+
+    Official id 0 is ignored. Official ids 1..16 become train ids 0..15.
+    """
+
+    official_labels = official_labels.astype(np.int64)
+    mapped = np.full(official_labels.shape, ignore_index, dtype=np.int64)
+    valid = (official_labels >= 1) & (official_labels <= 16)
+    mapped[valid] = official_labels[valid] - 1
     return mapped
