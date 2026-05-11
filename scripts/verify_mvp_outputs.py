@@ -1652,6 +1652,10 @@ def main() -> int:
     print(f"summary_json={summary_path}")
     print("failed_checks=" + ",".join(check["name"] for check in failed))
     print("warned_checks=" + ",".join(check["name"] for check in warned))
+    if failed:
+        print("failed_details=" + " | ".join(f"{check['name']}:{check['message']}" for check in failed[:5]))
+    if warned:
+        print("warned_details=" + " | ".join(f"{check['name']}:{check['message']}" for check in warned[:5]))
     print("========================================")
 
     return 0 if not failed else 1

@@ -34,9 +34,11 @@ SKIP_PREDICT=0
 SKIP_EVAL=0
 
 # Expanded cylindrical range. V15 used r<=60,z<=3 and covered only ~94.7% points.
-CYLINDER_R_MAX=80.0
-CYLINDER_Z_MIN=-6.0
-CYLINDER_Z_MAX=5.0
+# V16a defaults are deliberately conservative; sparse conv cost is driven mainly
+# by active voxels, while uncovered points directly lower prediction coverage.
+CYLINDER_R_MAX=120.0
+CYLINDER_Z_MIN=-10.0
+CYLINDER_Z_MAX=10.0
 
 usage() {
   cat <<'EOF'

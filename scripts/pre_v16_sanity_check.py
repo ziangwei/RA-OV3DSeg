@@ -146,6 +146,8 @@ def make_markdown_report(summary: dict[str, Any]) -> str:
             f"- official_void_points: {totals['official_void_points']}",
             f"- cylinder_range_inside_ratio: {totals['cylinder_range_inside_ratio']:.6f}",
             f"- max_points_subsample_would_drop_ratio: {totals['max_points_subsample_would_drop_ratio']:.6f}",
+            f"- max_observed_rho: {totals['max_observed_rho']:.3f}",
+            f"- observed_z_range: [{totals['min_observed_z']}, {totals['max_observed_z']}]",
             "",
             "## Current Split Vs Official 16",
             "",
@@ -187,6 +189,9 @@ def main() -> int:
     total_points = 0
     total_inside_cylinder = 0
     total_subsample_drop = 0
+    max_rho = 0.0
+    min_z = float("inf")
+    max_z = float("-inf")
     mismatches = []
 
     logger.info("dataroot=%s", Path(args.dataroot).expanduser().resolve())
@@ -223,6 +228,10 @@ def main() -> int:
             voxel_size=tuple(args.cylinder_voxel_size),
             point_cloud_range=tuple(args.cylinder_point_cloud_range),
         )
+        rho = np.linalg.norm(point_xyz[:, :2], axis=1)
+        max_rho = max(max_rho, float(np.max(rho)) if rho.size else 0.0)
+        min_z = min(min_z, float(np.min(point_xyz[:, 2])) if point_xyz.shape[0] else min_z)
+        max_z = max(max_z, float(np.max(point_xyz[:, 2])) if point_xyz.shape[0] else max_z)
 
         raw_counts += np.bincount(raw_labels.astype(np.int64), minlength=len(class_split.class_names))[
             : len(class_split.class_names)
@@ -364,6 +373,9 @@ def main() -> int:
             "max_points": int(args.max_points),
             "max_points_subsample_would_drop": int(total_subsample_drop),
             "max_points_subsample_would_drop_ratio": float(total_subsample_drop / max(total_points, 1)),
+            "max_observed_rho": float(max_rho),
+            "min_observed_z": None if not np.isfinite(min_z) else float(min_z),
+            "max_observed_z": None if not np.isfinite(max_z) else float(max_z),
         },
         "raw_histogram": hist_entries(raw_counts, class_split.class_names),
         "official_histogram": hist_entries(official_counts, NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES),
@@ -386,6 +398,9 @@ def main() -> int:
     print(f"official_16_supervised_points={summary['aggregate']['official_16_supervised_points']}")
     print(f"official_void_points={summary['aggregate']['official_void_points']}")
     print(f"cylinder_range_inside_ratio={summary['aggregate']['cylinder_range_inside_ratio']:.6f}")
+    print(f"max_observed_rho={summary['aggregate']['max_observed_rho']:.3f}")
+    print(f"min_observed_z={summary['aggregate']['min_observed_z']}")
+    print(f"max_observed_z={summary['aggregate']['max_observed_z']}")
     print(f"current_split_supervises_official_void={len(current_supervises_void)}")
     print(f"summary_json={summary_path}")
     print(f"report_md={report_path}")
