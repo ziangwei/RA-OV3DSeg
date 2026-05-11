@@ -21,7 +21,11 @@ from ra_ov3dseg.models.segmentor_factory import (  # noqa: E402
     build_segmentor,
     describe_backbone,
 )
-from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
+from ra_ov3dseg.training.labels import (  # noqa: E402
+    NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
+    build_class_split,
+    map_raw_lidarseg_to_official_16,
+)
 from ra_ov3dseg.training.losses import (  # noqa: E402
     cosine_distillation_loss,
     dense_logit_distillation_loss,
@@ -50,7 +54,8 @@ FEATURE_DISTILL_MODE = "feature_distill"
 DENSE_LOGIT_DISTILL_MODE = "dense_logit_distill"
 HYBRID_TEACHER_MODE = "hybrid"
 TEACHER_MODES = (FEATURE_DISTILL_MODE, DENSE_LOGIT_DISTILL_MODE, HYBRID_TEACHER_MODE)
-STUDENT_OUTPUT_SPACES = ("auto", "base", "all_lidarseg")
+OFFICIAL_16_OUTPUT_SPACE = "official_lidarseg_16"
+STUDENT_OUTPUT_SPACES = ("auto", "base", "all_lidarseg", OFFICIAL_16_OUTPUT_SPACE)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -239,6 +244,9 @@ def numpy_batch_to_torch(batch: dict[str, Any], torch_module, device) -> dict[st
         .float()
         .to(device, non_blocking=True),
         "train_labels": torch_module.from_numpy(batch["train_labels"]).long().to(device, non_blocking=True),
+        "official_16_train_labels": torch_module.from_numpy(batch["official_16_train_labels"])
+        .long()
+        .to(device, non_blocking=True),
         "all_class_train_labels": torch_module.from_numpy(batch["all_class_train_labels"])
         .long()
         .to(device, non_blocking=True),
@@ -315,7 +323,12 @@ def load_class_weights(args: argparse.Namespace, num_output_classes: int, torch_
     if not weight_path.exists():
         raise FileNotFoundError(f"class weights json not found: {weight_path}")
     data = load_json(weight_path)
-    key = "raw_class_weights" if num_output_classes == len(data.get("class_names", [])) else "train_class_weights"
+    if args.student_output_space == OFFICIAL_16_OUTPUT_SPACE:
+        key = "official_16_class_weights"
+    elif num_output_classes == len(data.get("class_names", [])):
+        key = "raw_class_weights"
+    else:
+        key = "train_class_weights"
     weights = data.get(key)
     if weights is None:
         raise ValueError(f"class weights json missing key: {key}")
@@ -328,6 +341,11 @@ def load_class_weights(args: argparse.Namespace, num_output_classes: int, torch_
 def map_output_predictions_to_lidarseg(pred_indices: np.ndarray, student_output_space: str, class_split) -> np.ndarray:
     if student_output_space == "all_lidarseg":
         return pred_indices.astype(np.int64)
+    if student_output_space == OFFICIAL_16_OUTPUT_SPACE:
+        mapped = np.full(pred_indices.shape, -1, dtype=np.int64)
+        valid = (pred_indices >= 0) & (pred_indices < 16)
+        mapped[valid] = pred_indices[valid].astype(np.int64) + 1
+        return mapped
     mapped = np.full(pred_indices.shape, -1, dtype=np.int64)
     train_to_label = np.asarray(class_split.train_id_to_label_id, dtype=np.int64)
     valid = (pred_indices >= 0) & (pred_indices < train_to_label.shape[0])
@@ -350,7 +368,17 @@ def evaluate_model_on_loader(
 ) -> dict[str, Any]:
     was_training = model.training
     model.eval()
-    num_classes = class_split.num_classes
+    if student_output_space == OFFICIAL_16_OUTPUT_SPACE:
+        num_classes = len(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES)
+        eval_ids = np.arange(1, num_classes, dtype=np.int64)
+        base_ids = eval_ids
+        novel_ids = np.asarray([], dtype=np.int64)
+    else:
+        num_classes = class_split.num_classes
+        eval_ids = np.asarray(class_split.base_label_ids, dtype=np.int64)
+        base_ids = class_split.base_label_ids
+        novel_ids = class_split.novel_label_ids
+        ignore_ids = set(class_split.ignore_label_ids.tolist())
     total_intersections = np.zeros(num_classes, dtype=np.int64)
     total_unions = np.zeros(num_classes, dtype=np.int64)
     total_gt_counts = np.zeros(num_classes, dtype=np.int64)
@@ -370,13 +398,17 @@ def evaluate_model_on_loader(
             pred_labels = map_output_predictions_to_lidarseg(pred_output, student_output_space, class_split)
             pred_labels[~model_valid_np] = -1
 
-            if student_output_space == "all_lidarseg":
+            if student_output_space == OFFICIAL_16_OUTPUT_SPACE:
+                gt_labels = map_raw_lidarseg_to_official_16(np.asarray(batch["raw_labels"], dtype=np.int64))
+                valid_gt_mask = gt_labels != 0
+            elif student_output_space == "all_lidarseg":
                 gt_labels = torch_batch["all_class_train_labels"].detach().cpu().numpy().astype(np.int64)
+                valid_gt_mask = (gt_labels != IGNORE_INDEX) & ~np.isin(gt_labels, list(ignore_ids))
             else:
                 gt_labels = np.asarray(batch["raw_labels"], dtype=np.int64)
                 valid_base = torch_batch["train_labels"].detach().cpu().numpy().astype(np.int64) != IGNORE_INDEX
                 gt_labels[~valid_base] = IGNORE_INDEX
-            valid_gt_mask = gt_labels != IGNORE_INDEX
+                valid_gt_mask = gt_labels != IGNORE_INDEX
             intersections, unions, gt_counts = segmentation_intersections_unions(
                 pred_labels=pred_labels,
                 gt_labels=gt_labels,
@@ -392,13 +424,12 @@ def evaluate_model_on_loader(
     if was_training:
         model.train()
     ious = safe_iou(total_intersections, total_unions)
-    eval_ids = np.asarray(class_split.base_label_ids, dtype=np.int64)
     all_miou = mean_iou_for_ids(ious, eval_ids)
-    base_miou = mean_iou_for_ids(ious, class_split.base_label_ids)
+    base_miou = mean_iou_for_ids(ious, base_ids)
     novel_miou = (
         float("nan")
-        if class_split.novel_label_ids.shape[0] == 0
-        else mean_iou_for_ids(ious, class_split.novel_label_ids)
+        if novel_ids.shape[0] == 0
+        else mean_iou_for_ids(ious, novel_ids)
     )
     return {
         "all_miou": finite_float_or_none(all_miou),
@@ -438,6 +469,11 @@ def save_checkpoint(
         "sample_indices": sample_indices,
         "distributed": distributed_state,
         "backbone": backbone_spec.__dict__,
+        "output_class_names": (
+            NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES
+            if vars(args).get("student_output_space") == OFFICIAL_16_OUTPUT_SPACE
+            else class_split.class_names
+        ),
         "class_split": {
             "class_names": class_split.class_names,
             "base_class_names": class_split.base_class_names,
@@ -554,10 +590,16 @@ def main() -> int:
     student_output_space = args.student_output_space
     if student_output_space == "auto":
         student_output_space = "all_lidarseg" if load_dense_logits else "base"
-    num_output_classes = (
-        class_split.num_classes if student_output_space == "all_lidarseg" else class_split.num_train_classes
-    )
-    ce_label_key = "all_class_train_labels" if student_output_space == "all_lidarseg" else "train_labels"
+    args.student_output_space = student_output_space
+    if student_output_space == OFFICIAL_16_OUTPUT_SPACE:
+        num_output_classes = 16
+        ce_label_key = "official_16_train_labels"
+    elif student_output_space == "all_lidarseg":
+        num_output_classes = class_split.num_classes
+        ce_label_key = "all_class_train_labels"
+    else:
+        num_output_classes = class_split.num_train_classes
+        ce_label_key = "train_labels"
     max_points = None if args.max_points <= 0 else args.max_points
     augmentation_config = PointAugmentationConfig(
         rotation_z_max_rad=float(args.aug_rotation_z),
@@ -1039,6 +1081,11 @@ def main() -> int:
             "load_dense_logits": load_dense_logits,
             "dense_temperature": args.dense_temperature,
             "num_output_classes": num_output_classes,
+            "output_class_names": (
+                NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES
+                if student_output_space == OFFICIAL_16_OUTPUT_SPACE
+                else class_split.class_names
+            ),
             "num_base_train_classes": class_split.num_train_classes,
             "base_classes": class_split.base_class_names,
             "novel_classes": class_split.novel_class_names,

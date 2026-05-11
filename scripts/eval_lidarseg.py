@@ -18,7 +18,11 @@ from ra_ov3dseg.evaluation.metrics import (  # noqa: E402
     safe_iou,
     segmentation_intersections_unions,
 )
-from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
+from ra_ov3dseg.training.labels import (  # noqa: E402
+    NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
+    build_class_split,
+    map_raw_lidarseg_to_official_16,
+)
 from ra_ov3dseg.utils.io import ensure_dir, load_json, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
@@ -40,6 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
     parser.add_argument("--split_config", default="configs/base_novel_split.yaml", type=str)
+    parser.add_argument(
+        "--label_space",
+        default="raw32",
+        choices=["raw32", "official16"],
+        help="raw32 evaluates raw nuScenes labels; official16 maps raw labels to the official 16-class lidarseg space.",
+    )
     parser.add_argument("--output_dir", default="outputs/evaluation3d", type=str)
     parser.add_argument("--skip_existing", action="store_true")
     return parser
@@ -83,7 +93,7 @@ def summarize_sample(
     ignore_ids: np.ndarray,
 ) -> dict[str, Any]:
     num_classes = len(class_names)
-    valid_gt_mask = (gt >= 0) & (gt < num_classes)
+    valid_gt_mask = (gt >= 0) & (gt < num_classes) & ~np.isin(gt, ignore_ids)
     valid_pred_mask = (pred >= 0) & (pred < num_classes)
     eval_class_ids = np.asarray(sorted(set(base_ids.tolist()) | set(novel_ids.tolist())), dtype=np.int64)
     intersections, unions, gt_counts = segmentation_intersections_unions(
@@ -199,7 +209,18 @@ def main() -> int:
     class_split = build_class_split(args.class_names_path, args.split_config)
     jobs = build_jobs(args, dataset)
 
-    num_classes = class_split.num_classes
+    if args.label_space == "official16":
+        class_names = list(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES)
+        base_ids = np.arange(1, len(class_names), dtype=np.int64)
+        novel_ids = np.asarray([], dtype=np.int64)
+        ignore_ids = np.asarray([0], dtype=np.int64)
+    else:
+        class_names = class_split.class_names
+        base_ids = class_split.base_label_ids
+        novel_ids = class_split.novel_label_ids
+        ignore_ids = class_split.ignore_label_ids
+
+    num_classes = len(class_names)
     total_intersections = np.zeros(num_classes, dtype=np.int64)
     total_unions = np.zeros(num_classes, dtype=np.int64)
     total_gt_counts = np.zeros(num_classes, dtype=np.int64)
@@ -245,27 +266,28 @@ def main() -> int:
         pred_data = load_npz(prediction_npz)
         if "class_names" in pred_data:
             pred_class_names = [str(name) for name in pred_data["class_names"].tolist()]
-            if pred_class_names[: class_split.num_classes] != class_split.class_names:
-                raise ValueError("prediction class_names order does not match lidarseg class_names.")
+            if pred_class_names[:num_classes] != class_names:
+                raise ValueError("prediction class_names order does not match requested label_space class_names.")
         pred = pred_data["pred_label_indices"].astype(np.int64)
         if pred.shape[0] != gt.shape[0]:
             raise ValueError(f"prediction/label count mismatch: pred={pred.shape[0]}, labels={gt.shape[0]}")
+        gt_eval = map_raw_lidarseg_to_official_16(gt) if args.label_space == "official16" else gt.astype(np.int64)
 
         sample_result = summarize_sample(
             sample_idx=sample_idx,
             sample_token=str(sample["token"]),
             pred=pred,
-            gt=gt.astype(np.int64),
-            class_names=class_split.class_names,
-            base_ids=class_split.base_label_ids,
-            novel_ids=class_split.novel_label_ids,
-            ignore_ids=class_split.ignore_label_ids,
+            gt=gt_eval,
+            class_names=class_names,
+            base_ids=base_ids,
+            novel_ids=novel_ids,
+            ignore_ids=ignore_ids,
         )
         intersections = sample_result["intersections"]
         unions = sample_result["unions"]
         gt_counts = sample_result["gt_counts"]
         conf = sample_result["confusion_matrix"]
-        valid_gt_mask = (gt >= 0) & (gt < num_classes)
+        valid_gt_mask = (gt_eval >= 0) & (gt_eval < num_classes) & ~np.isin(gt_eval, ignore_ids)
         valid_pred_mask = (pred >= 0) & (pred < num_classes)
         pred_counts = np.asarray([int(np.sum(valid_gt_mask & (pred == class_id))) for class_id in range(num_classes)])
 
@@ -281,16 +303,16 @@ def main() -> int:
             eval_npz,
             sample_idx=np.array(sample_idx, dtype=np.int32),
             sample_token=np.asarray(sample["token"]),
-            class_names=np.asarray(class_split.class_names),
+            class_names=np.asarray(class_names),
             intersections=intersections,
             unions=unions,
             gt_counts=gt_counts,
             pred_counts=pred_counts,
             ious=safe_iou(intersections, unions).astype(np.float32),
             confusion_matrix=conf,
-            base_label_ids=class_split.base_label_ids,
-            novel_label_ids=class_split.novel_label_ids,
-            ignore_label_ids=class_split.ignore_label_ids,
+            base_label_ids=base_ids,
+            novel_label_ids=novel_ids,
+            ignore_label_ids=ignore_ids,
         )
         summary = {
             "sample_idx": sample_idx,
@@ -324,10 +346,10 @@ def main() -> int:
             unions=total_unions,
             gt_counts=total_gt_counts,
             pred_counts=total_pred_counts,
-            class_names=class_split.class_names,
-            base_ids=class_split.base_label_ids,
-            novel_ids=class_split.novel_label_ids,
-            ignore_ids=class_split.ignore_label_ids,
+            class_names=class_names,
+            base_ids=base_ids,
+            novel_ids=novel_ids,
+            ignore_ids=ignore_ids,
             num_points=total_points,
             num_valid_pred_points=total_valid_pred_points,
         )
@@ -335,21 +357,22 @@ def main() -> int:
         batch_summary_json = output_dir / "batch_3d_eval_summary.json"
         save_npz(
             batch_eval_npz,
-            class_names=np.asarray(class_split.class_names),
+            class_names=np.asarray(class_names),
             intersections=total_intersections,
             unions=total_unions,
             gt_counts=total_gt_counts,
             pred_counts=total_pred_counts,
             ious=safe_iou(total_intersections, total_unions).astype(np.float32),
             confusion_matrix=total_confusion,
-            base_label_ids=class_split.base_label_ids,
-            novel_label_ids=class_split.novel_label_ids,
-            ignore_label_ids=class_split.ignore_label_ids,
+            base_label_ids=base_ids,
+            novel_label_ids=novel_ids,
+            ignore_label_ids=ignore_ids,
         )
         save_json(
             batch_summary_json,
             {
                 "version": args.version,
+                "label_space": args.label_space,
                 "num_samples": len(jobs),
                 "outputs": batch_outputs,
                 "aggregate_metrics": aggregate,

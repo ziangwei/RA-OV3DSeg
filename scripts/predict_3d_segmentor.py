@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from ra_ov3dseg.models.segmentor_factory import build_segmentor  # noqa: E402
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
+from ra_ov3dseg.training.labels import NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES  # noqa: E402
 from ra_ov3dseg.utils.io import ensure_dir, load_text_lines, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 from ra_ov3dseg.visualization.visualize_points import (  # noqa: E402
@@ -95,6 +96,9 @@ def build_point_feature_paths(args) -> list[Path]:
 
 
 def infer_checkpoint_output_space(checkpoint: dict[str, Any], num_output_classes: int, class_names: list[str]) -> str:
+    ckpt_output_space = str(checkpoint.get("args", {}).get("student_output_space", ""))
+    if ckpt_output_space in {"base", "all_lidarseg", "official_lidarseg_16"}:
+        return ckpt_output_space
     class_split = checkpoint.get("class_split", {})
     train_id_to_label_id = class_split.get("train_id_to_label_id", [])
     if num_output_classes == len(class_names):
@@ -140,6 +144,11 @@ def output_indices_to_lidarseg_labels(
         pred_label_indices[valid] = pred_output_indices[valid].astype(np.int32)
         return pred_label_indices
 
+    if output_space == "official_lidarseg_16":
+        in_range = valid & (pred_output_indices < 16)
+        pred_label_indices[in_range] = pred_output_indices[in_range].astype(np.int32) + 1
+        return pred_label_indices
+
     if output_space == "base":
         train_id_to_label_id = np.asarray(checkpoint["class_split"]["train_id_to_label_id"], dtype=np.int32)
         in_range = valid & (pred_output_indices < train_id_to_label_id.shape[0])
@@ -168,6 +177,10 @@ def main() -> int:
     output_space = infer_checkpoint_output_space(checkpoint, num_output_classes, class_names)
     if output_space == "unknown":
         raise ValueError(f"Cannot infer output space from num_output_classes={num_output_classes}.")
+    if output_space == "official_lidarseg_16":
+        class_names = list(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES)
+    elif "output_class_names" in checkpoint:
+        class_names = [str(name) for name in checkpoint["output_class_names"]]
 
     dataset = None
     if args.input_source == "raw_lidarseg":

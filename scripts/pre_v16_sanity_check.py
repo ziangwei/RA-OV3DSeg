@@ -379,6 +379,19 @@ def main() -> int:
     for check in checks:
         logger.info("[%s] %s | %s", check["status"].upper(), check["name"], check["message"])
 
+    print("========== SEND_THIS_TO_CODEX ==========")
+    print(f"stage=pre_v16_sanity")
+    print(f"status={status}")
+    print(f"total_points={summary['aggregate']['total_points']}")
+    print(f"official_16_supervised_points={summary['aggregate']['official_16_supervised_points']}")
+    print(f"official_void_points={summary['aggregate']['official_void_points']}")
+    print(f"cylinder_range_inside_ratio={summary['aggregate']['cylinder_range_inside_ratio']:.6f}")
+    print(f"current_split_supervises_official_void={len(current_supervises_void)}")
+    print(f"summary_json={summary_path}")
+    print(f"report_md={report_path}")
+    print("checks=" + "; ".join(f"{check['name']}:{check['status']}" for check in checks))
+    print("========================================")
+
     if args.strict and hard_fail:
         return 1
     return 0

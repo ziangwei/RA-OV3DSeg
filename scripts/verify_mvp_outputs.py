@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
             "v13",
             "v14",
             "v15",
+            "v16a",
         ],
         help=(
             "Stage to verify: v0 projection, v1 features/zero-shot, v2 reliability, "
@@ -52,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
             "v12 GroupViT dense teacher training/eval, "
             "v13 teacher-quality and supervised-backbone diagnostics, "
             "v14 improved supervised 3D recipe, "
-            "v15 cylinder-grid supervised 3D baseline."
+            "v15 cylinder-grid supervised 3D baseline, "
+            "v16a official-16 cylinder baseline."
         ),
     )
     parser.add_argument(
@@ -1448,6 +1450,121 @@ def verify_cylinder_baseline_v15(outputs_dir: Path, args, checks: list[dict[str,
         )
 
 
+def verify_official16_cylinder_v16a(outputs_dir: Path, args, checks: list[dict[str, Any]]) -> None:
+    experiment_dir = (
+        Path(args.experiment_dir)
+        if args.experiment_dir is not None
+        else outputs_dir / "experiments" / "trainval_v16a_official16_cylinder_128"
+    )
+    class_freq_path = experiment_dir / "class_frequencies.json"
+    precheck_summary_path = experiment_dir / "reports" / "pre_v16_sanity_summary.json"
+    training_dir = experiment_dir / "training"
+    training_summary_path = training_dir / "train_summary.json"
+    best_checkpoint = training_dir / "cylinder_spconv_unet_best.pt"
+    latest_checkpoint = training_dir / "cylinder_spconv_unet_latest.pt"
+    eval_summary_path = experiment_dir / "evaluation3d" / "batch_3d_eval_summary.json"
+    compact_summary_path = experiment_dir / "compact_summary.json"
+
+    if check_file(precheck_summary_path, checks, "v16a_precheck_summary_json"):
+        precheck = load_json(precheck_summary_path)
+        aggregate = precheck.get("aggregate", {})
+        range_ratio = float(aggregate.get("cylinder_range_inside_ratio", 0.0))
+        add_check(
+            checks,
+            "v16a_expanded_range_coverage",
+            range_ratio >= 0.98,
+            f"cylinder_range_inside_ratio={range_ratio:.6f}",
+            aggregate,
+        )
+
+    if check_file(class_freq_path, checks, "v16a_class_frequencies_json"):
+        class_freq = load_json(class_freq_path)
+        weights = class_freq.get("official_16_class_weights", [])
+        add_check(
+            checks,
+            "v16a_official16_class_weights",
+            len(weights) == 16,
+            f"num_weights={len(weights)}",
+            {"official_16_train_counts": class_freq.get("official_16_train_counts"), "weights": weights},
+        )
+
+    if check_file(training_summary_path, checks, "v16a_training_summary_json"):
+        training_summary = load_json(training_summary_path)
+        backbone = training_summary.get("backbone", {})
+        loss_weights = training_summary.get("loss_weights", {})
+        class_weights = training_summary.get("class_weights", {})
+        eval_info = training_summary.get("eval_during_training", {})
+        epoch_logs = training_summary.get("epoch_logs", [])
+        final_epoch = epoch_logs[-1] if epoch_logs else {}
+        add_check(
+            checks,
+            "v16a_output_space",
+            training_summary.get("student_output_space") == "official_lidarseg_16",
+            f"student_output_space={training_summary.get('student_output_space')}",
+            training_summary.get("student_output_space"),
+        )
+        add_check(
+            checks,
+            "v16a_num_output_classes",
+            int(training_summary.get("num_output_classes", -1)) == 16,
+            f"num_output_classes={training_summary.get('num_output_classes')}",
+            training_summary.get("num_output_classes"),
+        )
+        add_check(
+            checks,
+            "v16a_backbone",
+            backbone.get("backbone") == "cylinder_spconv_unet",
+            f"backbone={backbone.get('backbone')}",
+            backbone,
+        )
+        add_check(
+            checks,
+            "v16a_expanded_cylinder_range_recorded",
+            float(training_summary.get("point_cloud_range", [0, 0, 0, 0])[3]) >= 80.0,
+            f"point_cloud_range={training_summary.get('point_cloud_range')}",
+            training_summary.get("point_cloud_range"),
+        )
+        add_check(
+            checks,
+            "v16a_lovasz_or_dice_enabled",
+            float(loss_weights.get("lovasz_weight", 0.0)) > 0.0 or float(loss_weights.get("dice_weight", 0.0)) > 0.0,
+            f"loss_weights={loss_weights}",
+            loss_weights,
+        )
+        add_check(checks, "v16a_class_weights_enabled", bool(class_weights), f"class_weights={class_weights}", class_weights)
+        add_check(checks, "v16a_eval_during_training", bool(eval_info.get("enabled", False)), f"eval={eval_info}", eval_info)
+        add_check(
+            checks,
+            "v16a_epoch_logs",
+            bool(epoch_logs) and "avg_lovasz_loss" in final_epoch and "eval" in final_epoch,
+            f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
+            final_epoch,
+        )
+    check_file(best_checkpoint, checks, "v16a_best_checkpoint")
+    check_file(latest_checkpoint, checks, "v16a_latest_checkpoint")
+
+    if check_file(eval_summary_path, checks, "v16a_eval_summary_json"):
+        eval_summary = load_json(eval_summary_path)
+        metrics = eval_summary.get("aggregate_metrics", {})
+        add_check(
+            checks,
+            "v16a_eval_metrics",
+            {"all_miou", "base_miou", "prediction_coverage"}.issubset(metrics.keys()),
+            f"metrics_keys={sorted(metrics.keys())}",
+            metrics,
+        )
+        coverage = float(metrics.get("prediction_coverage", 0.0))
+        add_check(
+            checks,
+            "v16a_prediction_coverage",
+            coverage >= 0.98,
+            f"prediction_coverage={coverage:.6f}",
+            metrics,
+        )
+
+    check_file(compact_summary_path, checks, "v16a_compact_summary_json")
+
+
 def main() -> int:
     args = build_parser().parse_args()
     logger = setup_logger("verify_mvp_outputs")
@@ -1455,7 +1572,7 @@ def main() -> int:
     output_dir = ensure_dir(args.output_dir)
     checks: list[dict[str, Any]] = []
 
-    if args.stage not in {"v9", "v10", "v11", "v12", "v13", "v14", "v15"}:
+    if args.stage not in {"v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16a"}:
         verify_projection(outputs_dir, args.sample_idx, args, checks)
         verify_overlays(outputs_dir, args.sample_idx, checks)
     if args.stage in {"v1", "v2", "v3", "v4", "v5", "v7"}:
@@ -1493,6 +1610,8 @@ def main() -> int:
         verify_supervised_recipe_v14(outputs_dir, args, checks)
     if args.stage == "v15":
         verify_cylinder_baseline_v15(outputs_dir, args, checks)
+    if args.stage == "v16a":
+        verify_official16_cylinder_v16a(outputs_dir, args, checks)
 
     failed = [check for check in checks if check["status"] == "fail"]
     warned = [check for check in checks if check["status"] == "warn"]
@@ -1523,6 +1642,17 @@ def main() -> int:
         if check["status"] == "fail":
             level = logger.error
         level("[%s] %s | %s", check["status"].upper(), check["name"], check["message"])
+
+    print("========== SEND_THIS_TO_CODEX ==========")
+    print(f"stage={args.stage}")
+    print(f"verification_status={summary['status']}")
+    print(f"passed={len(passed)}")
+    print(f"warned={len(warned)}")
+    print(f"failed={len(failed)}")
+    print(f"summary_json={summary_path}")
+    print("failed_checks=" + ",".join(check["name"] for check in failed))
+    print("warned_checks=" + ",".join(check["name"] for check in warned))
+    print("========================================")
 
     return 0 if not failed else 1
 

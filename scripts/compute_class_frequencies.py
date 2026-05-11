@@ -12,7 +12,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
-from ra_ov3dseg.training.labels import build_class_split, map_labels_for_base_ce  # noqa: E402
+from ra_ov3dseg.training.labels import (  # noqa: E402
+    NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
+    build_class_split,
+    map_labels_for_base_ce,
+    map_official_16_for_ce,
+    map_raw_lidarseg_to_official_16,
+)
 from ra_ov3dseg.training.precomputed_dataset import IGNORE_INDEX  # noqa: E402
 from ra_ov3dseg.utils.io import ensure_dir, save_json  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
@@ -60,6 +66,8 @@ def main() -> int:
 
     raw_counts = np.zeros(num_classes, dtype=np.int64)
     train_counts = np.zeros(class_split.num_train_classes, dtype=np.int64)
+    official_16_counts = np.zeros(len(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES), dtype=np.int64)
+    official_16_train_counts = np.zeros(16, dtype=np.int64)
     missing_labels: list[int] = []
     for sample_idx in sample_indices:
         sample = dataset.get_sample_by_index(sample_idx)
@@ -75,17 +83,34 @@ def main() -> int:
         train_labels = map_labels_for_base_ce(labels, class_split, ignore_index=IGNORE_INDEX)
         valid_train = train_labels[train_labels != IGNORE_INDEX].astype(np.int64)
         train_counts += np.bincount(valid_train, minlength=class_split.num_train_classes)[: class_split.num_train_classes]
+        official_16_labels = map_raw_lidarseg_to_official_16(labels)
+        official_16_counts += np.bincount(
+            official_16_labels.astype(np.int64), minlength=len(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES)
+        )[: len(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES)]
+        official_16_train_labels = map_official_16_for_ce(official_16_labels, ignore_index=IGNORE_INDEX)
+        valid_official_16_train = official_16_train_labels[official_16_train_labels != IGNORE_INDEX].astype(np.int64)
+        official_16_train_counts += np.bincount(valid_official_16_train, minlength=16)[:16]
 
     raw_active_mask = np.zeros(num_classes, dtype=bool)
     raw_active_mask[class_split.base_label_ids] = True
     train_active_mask = np.ones(class_split.num_train_classes, dtype=bool)
     raw_weights = normalized_inverse_sqrt_weights(raw_counts, raw_active_mask, min_count=args.min_count)
     train_weights = normalized_inverse_sqrt_weights(train_counts, train_active_mask, min_count=args.min_count)
+    official_16_active_mask = np.ones(16, dtype=bool)
+    official_16_weights = normalized_inverse_sqrt_weights(
+        official_16_train_counts,
+        official_16_active_mask,
+        min_count=args.min_count,
+    )
 
     total_raw = int(raw_counts.sum())
     raw_freq = (raw_counts / max(total_raw, 1)).astype(np.float64)
     total_train = int(train_counts.sum())
     train_freq = (train_counts / max(total_train, 1)).astype(np.float64)
+    total_official_16 = int(official_16_counts.sum())
+    official_16_freq = (official_16_counts / max(total_official_16, 1)).astype(np.float64)
+    total_official_16_train = int(official_16_train_counts.sum())
+    official_16_train_freq = (official_16_train_counts / max(total_official_16_train, 1)).astype(np.float64)
 
     per_class: list[dict[str, Any]] = []
     base_ids = set(class_split.base_label_ids.tolist())
@@ -130,6 +155,12 @@ def main() -> int:
         "train_counts": train_counts.astype(int).tolist(),
         "train_frequencies": train_freq.astype(float).tolist(),
         "train_class_weights": train_weights.astype(float).tolist(),
+        "official_16_class_names": NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
+        "official_16_counts": official_16_counts.astype(int).tolist(),
+        "official_16_frequencies": official_16_freq.astype(float).tolist(),
+        "official_16_train_counts": official_16_train_counts.astype(int).tolist(),
+        "official_16_train_frequencies": official_16_train_freq.astype(float).tolist(),
+        "official_16_class_weights": official_16_weights.astype(float).tolist(),
         "per_class": per_class,
     }
     save_json(output_json, summary)

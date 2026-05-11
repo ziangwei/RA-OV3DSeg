@@ -7,7 +7,12 @@ import numpy as np
 
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset
 from ra_ov3dseg.training.augmentations import PointAugmentationConfig, augment_point_xyz
-from ra_ov3dseg.training.labels import ClassSplit, map_labels_for_base_ce
+from ra_ov3dseg.training.labels import (
+    ClassSplit,
+    map_labels_for_base_ce,
+    map_official_16_for_ce,
+    map_raw_lidarseg_to_official_16,
+)
 
 
 IGNORE_INDEX = -100
@@ -231,6 +236,8 @@ class PrecomputedPointFeatureDataset:
             dense_teacher_confidence = np.clip(dense_teacher_confidence, 0.0, 1.0).astype(np.float32)
 
         train_labels = map_labels_for_base_ce(raw_labels, self.class_split, ignore_index=self.ignore_index)
+        official_16_labels = map_raw_lidarseg_to_official_16(raw_labels)
+        official_16_train_labels = map_official_16_for_ce(official_16_labels, ignore_index=self.ignore_index)
         all_class_train_labels = np.full(raw_labels.shape, self.ignore_index, dtype=np.int64)
         base_raw_mask = np.isin(raw_labels, self.class_split.base_label_ids)
         all_class_train_labels[base_raw_mask] = raw_labels[base_raw_mask].astype(np.int64)
@@ -245,6 +252,7 @@ class PrecomputedPointFeatureDataset:
         dense_teacher_confidence_selected = dense_teacher_confidence[selected]
         raw_labels_selected = raw_labels[selected].astype(np.int64)
         train_labels_selected = train_labels[selected].astype(np.int64)
+        official_16_train_labels_selected = official_16_train_labels[selected].astype(np.int64)
         all_class_train_labels_selected = all_class_train_labels[selected].astype(np.int64)
 
         if self.augment:
@@ -258,6 +266,7 @@ class PrecomputedPointFeatureDataset:
             dense_teacher_confidence_selected = dense_teacher_confidence_selected[keep_mask]
             raw_labels_selected = raw_labels_selected[keep_mask]
             train_labels_selected = train_labels_selected[keep_mask]
+            official_16_train_labels_selected = official_16_train_labels_selected[keep_mask]
             all_class_train_labels_selected = all_class_train_labels_selected[keep_mask]
 
         return {
@@ -273,6 +282,7 @@ class PrecomputedPointFeatureDataset:
             "dense_teacher_confidence": dense_teacher_confidence_selected,
             "raw_labels": raw_labels_selected,
             "train_labels": train_labels_selected,
+            "official_16_train_labels": official_16_train_labels_selected,
             "all_class_train_labels": all_class_train_labels_selected,
             "num_points_before_subsample": int(point_xyz.shape[0]),
             "point_feature_path": str(point_feature_path),
@@ -308,6 +318,7 @@ def collate_point_feature_samples(samples: list[dict[str, Any]]) -> dict[str, An
         "dense_teacher_confidence": cat_array("dense_teacher_confidence").astype(np.float32),
         "raw_labels": cat_array("raw_labels").astype(np.int64),
         "train_labels": cat_array("train_labels").astype(np.int64),
+        "official_16_train_labels": cat_array("official_16_train_labels").astype(np.int64),
         "all_class_train_labels": cat_array("all_class_train_labels").astype(np.int64),
         "num_points_before_subsample": [int(sample["num_points_before_subsample"]) for sample in samples],
     }
