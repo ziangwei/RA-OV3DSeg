@@ -246,15 +246,14 @@ class SpUNetBase(nn.Module):
         else:
             sparse_shape_xyz = torch.add(torch.max(grid_coord, dim=0).values, 96).detach().cpu().tolist()
 
-        sparse_shape_zyx = [sparse_shape_xyz[2], sparse_shape_xyz[1], sparse_shape_xyz[0]]
         sparse_indices = torch.cat(
-            [batch.unsqueeze(-1).int(), grid_coord[:, [2, 1, 0]].int()],
+            [batch.unsqueeze(-1).int(), grid_coord.int()],
             dim=1,
         ).contiguous()
         x = spconv.SparseConvTensor(
             features=feat,
             indices=sparse_indices,
-            spatial_shape=sparse_shape_zyx,
+            spatial_shape=sparse_shape_xyz,
             batch_size=int(batch[-1].detach().cpu().item()) + 1,
         )
         x = self.conv_input(x)

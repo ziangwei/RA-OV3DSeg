@@ -1571,7 +1571,7 @@ def verify_pointcept_spunet_v17(outputs_dir: Path, args, checks: list[dict[str, 
     experiment_dir = (
         Path(args.experiment_dir)
         if args.experiment_dir is not None
-        else outputs_dir / "experiments" / "trainval_v17_pointcept_spunet_128_headfix"
+        else outputs_dir / "experiments" / "trainval_v17_pointcept_spunet_128_recipe"
     )
     class_freq_path = experiment_dir / "class_frequencies.json"
     training_dir = experiment_dir / "training"

@@ -259,8 +259,10 @@ third_party/pointcept_spunet/
   -> existing train_3d_segmentor / predict_3d_segmentor / eval_lidarseg scripts
 ```
 
-Only the headfixed V17 runs should be used for decisions. The first V17 adapter
-had an extra embedding bottleneck and is recorded only as a negative result.
+Only the recipe-fixed V17 runs should be used for decisions. The first V17
+adapter had an extra embedding bottleneck, and the first headfix still used a
+non-Pointcept fixed global grid / short training recipe. Both are recorded only
+as negative debugging results.
 
 The final experiments should compare:
 

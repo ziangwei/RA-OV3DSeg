@@ -6,20 +6,21 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DATAROOT="${PROJECT_ROOT}/data/nuscenes"
 OUTPUTS_DIR="${PROJECT_ROOT}/outputs"
-EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_headfix"
+EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_recipe"
 TRAIN_START_IDX=0
 TRAIN_MAX_SAMPLES=128
 EVAL_START_IDX=128
 EVAL_MAX_SAMPLES=128
-EPOCHS=10
+EPOCHS=50
 BATCH_SIZE=1
 NUM_WORKERS=4
 MAX_POINTS=50000
 SPARSE_BASE_CHANNELS=32
 FEATURE_DIM=128
-LR=0.001
+LR=0.002
 WEIGHT_DECAY=0.005
-LOVASZ_WEIGHT=1.0
+LR_SCHEDULER="onecycle"
+LOVASZ_WEIGHT=0.0
 DICE_WEIGHT=0.0
 EVAL_EVERY=2
 DEVICE="cuda"
@@ -28,6 +29,7 @@ AMP=1
 AUGMENT=1
 SKIP_EXISTING=0
 SKIP_CLASS_FREQ=0
+USE_CLASS_WEIGHTS=0
 SKIP_TRAIN=0
 SKIP_PREDICT=0
 SKIP_EVAL=0
@@ -48,8 +50,8 @@ Task type:
 
 Expected runtime:
   - Smoke: --train_max_samples 8 --eval_max_samples 8 --epochs 2 --sparse_base_channels 16 -> 10-25 min on one H100.
-  - Default: 128 train / 128 eval / 10 epochs -> about 30-90 min on one H100.
-  - 1024 train / 512 eval / 30 epochs -> several hours on one H100.
+  - Default: 128 train / 128 eval / 50 epochs -> about 1-3 hours on one H100.
+  - 1024 train / 512 eval / 50 epochs -> several hours on one H100.
 
 Main purpose:
   Test a mature vendored Pointcept SpConv SparseUNet backend inside RA-OV3DSeg's
@@ -57,7 +59,7 @@ Main purpose:
 
 Examples:
   bash scripts/run_v17_pointcept_spunet.sh \
-    --experiment_name trainval_v17_pointcept_spunet_smoke_headfix \
+    --experiment_name trainval_v17_pointcept_spunet_smoke_recipe \
     --train_max_samples 8 \
     --eval_start_idx 128 \
     --eval_max_samples 8 \
@@ -82,6 +84,7 @@ Options:
   --feature_dim N
   --lr LR
   --weight_decay WD
+  --lr_scheduler none|onecycle
   --lovasz_weight W
   --dice_weight W
   --eval_every N
@@ -95,6 +98,8 @@ Options:
   --no_augment
   --skip_existing
   --skip_class_freq
+  --use_class_weights
+  --no_class_weights
   --skip_train
   --skip_predict
   --skip_eval
@@ -119,6 +124,7 @@ while [[ $# -gt 0 ]]; do
     --feature_dim) FEATURE_DIM="$2"; shift 2 ;;
     --lr) LR="$2"; shift 2 ;;
     --weight_decay) WEIGHT_DECAY="$2"; shift 2 ;;
+    --lr_scheduler) LR_SCHEDULER="$2"; shift 2 ;;
     --lovasz_weight) LOVASZ_WEIGHT="$2"; shift 2 ;;
     --dice_weight) DICE_WEIGHT="$2"; shift 2 ;;
     --eval_every) EVAL_EVERY="$2"; shift 2 ;;
@@ -132,6 +138,8 @@ while [[ $# -gt 0 ]]; do
     --no_augment) AUGMENT=0; shift ;;
     --skip_existing) SKIP_EXISTING=1; shift ;;
     --skip_class_freq) SKIP_CLASS_FREQ=1; shift ;;
+    --use_class_weights) USE_CLASS_WEIGHTS=1; shift ;;
+    --no_class_weights) USE_CLASS_WEIGHTS=0; shift ;;
     --skip_train) SKIP_TRAIN=1; shift ;;
     --skip_predict) SKIP_PREDICT=1; shift ;;
     --skip_eval) SKIP_EVAL=1; shift ;;
@@ -212,8 +220,8 @@ TRAIN_CORE=(
   --feature_dim "${FEATURE_DIM}"
   --lr "${LR}"
   --weight_decay "${WEIGHT_DECAY}"
+  --lr_scheduler "${LR_SCHEDULER}"
   --ce_weight 1.0
-  --class_weights_path "${CLASS_FREQ_JSON}"
   --lovasz_weight "${LOVASZ_WEIGHT}"
   --dice_weight "${DICE_WEIGHT}"
   --distill_weight 0.0
@@ -229,6 +237,9 @@ if [[ "${AMP}" == "1" ]]; then
 fi
 if [[ "${AUGMENT}" == "1" ]]; then
   TRAIN_CORE+=(--augment)
+fi
+if [[ "${USE_CLASS_WEIGHTS}" == "1" ]]; then
+  TRAIN_CORE+=(--class_weights_path "${CLASS_FREQ_JSON}")
 fi
 if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
   TRAIN_COMMAND=(torchrun --standalone "--nproc_per_node=${NPROC_PER_NODE}" "${TRAIN_CORE[@]}")
@@ -280,7 +291,7 @@ SUMMARY_COMMAND=(
 {
   echo "[INFO] V17 Pointcept SpUNet baseline started at $(date -Is)"
   echo "[INFO] task_type=CPU class-frequency + GPU train/predict + CPU eval"
-  echo "[INFO] expected_runtime=default 128 train/eval, 10 epochs: about 30-90 min on one H100"
+  echo "[INFO] expected_runtime=default 128 train/eval, 50 epochs: about 1-3 hours on one H100"
   echo "[INFO] gpu_required=yes for training when --device cuda"
   echo "[INFO] project_root=${PROJECT_ROOT}"
   echo "[INFO] experiment_dir=${EXPERIMENT_DIR}"
@@ -288,6 +299,10 @@ SUMMARY_COMMAND=(
   echo "[INFO] eval_range=start:${EVAL_START_IDX} max:${EVAL_MAX_SAMPLES}"
   echo "[INFO] backbone=pointcept_spunet"
   echo "[INFO] label_space=official_lidarseg_16"
+  echo "[INFO] lr=${LR}"
+  echo "[INFO] lr_scheduler=${LR_SCHEDULER}"
+  echo "[INFO] class_weights=${USE_CLASS_WEIGHTS}"
+  echo "[INFO] lovasz_weight=${LOVASZ_WEIGHT}"
   echo "[INFO] voxel_size=${VOXEL_SIZE}"
   echo "[INFO] point_cloud_range=[-${RANGE_XY},-${RANGE_XY},${RANGE_Z_MIN},${RANGE_XY},${RANGE_XY},${RANGE_Z_MAX}]"
   echo "[INFO] log_file=${LOG_FILE}"
@@ -300,7 +315,7 @@ SUMMARY_COMMAND=(
 if [[ "${SKIP_CLASS_FREQ}" != "1" ]]; then
   run_step "compute_class_frequencies" "${CLASS_FREQ_COMMAND[@]}"
 fi
-if [[ ! -f "${CLASS_FREQ_JSON}" ]]; then
+if [[ "${USE_CLASS_WEIGHTS}" == "1" && ! -f "${CLASS_FREQ_JSON}" ]]; then
   echo "[ERROR] class frequency json not found: ${CLASS_FREQ_JSON}" | tee -a "${LOG_FILE}" >&2
   exit 1
 fi

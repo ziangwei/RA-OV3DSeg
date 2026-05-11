@@ -127,6 +127,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sparse_base_channels", default=32, type=int, help="Base channels for sparse_unet_spconv.")
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--weight_decay", default=1e-4, type=float)
+    parser.add_argument("--lr_scheduler", default="none", choices=["none", "onecycle"])
+    parser.add_argument("--onecycle_pct_start", default=0.04, type=float)
+    parser.add_argument("--onecycle_div_factor", default=10.0, type=float)
+    parser.add_argument("--onecycle_final_div_factor", default=100.0, type=float)
     parser.add_argument("--ce_weight", default=1.0, type=float)
     parser.add_argument("--class_weights_path", default=None, type=str, help="Optional JSON from compute_class_frequencies.py.")
     parser.add_argument("--distill_weight", default=1.0, type=float)
@@ -753,6 +757,18 @@ def main() -> int:
         )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    lr_scheduler = None
+    if args.lr_scheduler == "onecycle":
+        lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=args.lr,
+            epochs=args.epochs,
+            steps_per_epoch=max(len(loader), 1),
+            pct_start=args.onecycle_pct_start,
+            anneal_strategy="cos",
+            div_factor=args.onecycle_div_factor,
+            final_div_factor=args.onecycle_final_div_factor,
+        )
     amp_enabled = bool(args.amp and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     use_feature_distill = args.teacher_mode in {FEATURE_DISTILL_MODE, HYBRID_TEACHER_MODE} and args.distill_weight > 0.0
@@ -787,6 +803,14 @@ def main() -> int:
             logger.warning("debug backbone in use: %s", backbone_spec.description)
         if class_weight_info:
             logger.info("class weights enabled | %s", class_weight_info)
+        if lr_scheduler is not None:
+            logger.info(
+                "lr scheduler enabled | onecycle max_lr=%s pct_start=%s div_factor=%s final_div_factor=%s",
+                args.lr,
+                args.onecycle_pct_start,
+                args.onecycle_div_factor,
+                args.onecycle_final_div_factor,
+            )
         if args.augment:
             logger.info("point augmentation enabled | %s", augmentation_config)
 
@@ -893,6 +917,8 @@ def main() -> int:
             grad_norm = compute_grad_norm(model)
             scaler.step(optimizer)
             scaler.update()
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
             output_valid_mask = outputs.get(
                 "model_valid_mask",
@@ -1079,6 +1105,12 @@ def main() -> int:
             "point_cloud_range": list(args.point_cloud_range),
             "sparse_base_channels": args.sparse_base_channels,
             "feature_dim": feature_dim,
+            "lr_scheduler": {
+                "name": args.lr_scheduler,
+                "onecycle_pct_start": args.onecycle_pct_start,
+                "onecycle_div_factor": args.onecycle_div_factor,
+                "onecycle_final_div_factor": args.onecycle_final_div_factor,
+            },
             "dense_point_dir": str(Path(args.dense_point_dir).expanduser().resolve()),
             "init_checkpoint": str(Path(args.init_checkpoint).expanduser().resolve()) if args.init_checkpoint else "",
             "load_dense_logits": load_dense_logits,

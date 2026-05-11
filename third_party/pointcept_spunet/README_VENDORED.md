@@ -17,6 +17,7 @@ Modifications:
 - Replaced `timm.layers.trunc_normal_` with `torch.nn.init.trunc_normal_`.
 - Added `return_sparse_tensor=True` path so RA-OV3DSeg can gather voxel features back to original points.
 - V17 adapter instantiates this module with `num_classes=0` and applies RA-OV3DSeg's own per-voxel linear classifier on decoder features. This avoids an extra embedding bottleneck while keeping checkpoint/prediction code centralized in RA-OV3DSeg.
+- Kept Pointcept's sparse coordinate convention (`[batch, x, y, z]`). The adapter performs Pointcept-style per-sample local grid shifting before calling this module.
 - Kept the SpConv SparseUNet encoder-decoder blocks and default channel/layer recipe from Pointcept's nuScenes config.
 
 Import rule:

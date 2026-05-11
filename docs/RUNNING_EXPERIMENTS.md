@@ -428,7 +428,7 @@ Smoke run:
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_smoke_headfix \
+  --experiment_name trainval_v17_pointcept_spunet_smoke_recipe \
   --train_max_samples 8 \
   --eval_start_idx 128 \
   --eval_max_samples 8 \
@@ -441,7 +441,7 @@ Default 128-sample run:
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_128_headfix
+  --experiment_name trainval_v17_pointcept_spunet_128_recipe
 ```
 
 Verify:
@@ -450,7 +450,7 @@ Verify:
 python scripts/verify_mvp_outputs.py \
   --stage v17 \
   --outputs_dir outputs \
-  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_headfix \
+  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_recipe \
   --output_dir outputs/verification
 ```
 
