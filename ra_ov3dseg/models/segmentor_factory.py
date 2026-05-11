@@ -7,8 +7,20 @@ DEBUG_BACKBONE = "debug_point_mlp"
 SPARSE_UNET_BACKBONE = "sparse_unet_spconv"
 SPCONV_RESUNET_BACKBONE = "spconv_resunet"
 CYLINDER_SPUNET_BACKBONE = "cylinder_spconv_unet"
-SPCONV_BACKBONES = (SPARSE_UNET_BACKBONE, SPCONV_RESUNET_BACKBONE, CYLINDER_SPUNET_BACKBONE)
-SUPPORTED_BACKBONES = (DEBUG_BACKBONE, SPARSE_UNET_BACKBONE, SPCONV_RESUNET_BACKBONE, CYLINDER_SPUNET_BACKBONE)
+POINTCEPT_SPUNET_BACKBONE = "pointcept_spunet"
+SPCONV_BACKBONES = (
+    SPARSE_UNET_BACKBONE,
+    SPCONV_RESUNET_BACKBONE,
+    CYLINDER_SPUNET_BACKBONE,
+    POINTCEPT_SPUNET_BACKBONE,
+)
+SUPPORTED_BACKBONES = (
+    DEBUG_BACKBONE,
+    SPARSE_UNET_BACKBONE,
+    SPCONV_RESUNET_BACKBONE,
+    CYLINDER_SPUNET_BACKBONE,
+    POINTCEPT_SPUNET_BACKBONE,
+)
 
 
 @dataclass(frozen=True)
@@ -60,6 +72,16 @@ def describe_backbone(backbone: str) -> SegmentorSpec:
                 "Cylinder3D-style spconv U-Net using cylindrical LiDAR partitioning, "
                 "asymmetric sparse residual blocks, and LiDAR intensity. This is the "
                 "preferred supervised baseline backbone for V15."
+            ),
+        )
+    if backbone == POINTCEPT_SPUNET_BACKBONE:
+        return SegmentorSpec(
+            backbone=backbone,
+            role="vendored_pointcept_sparse_unet",
+            is_debug_model=False,
+            description=(
+                "Vendored Pointcept SpConv SparseUNet v1m1 adapted through a thin RA-OV3DSeg "
+                "adapter. This is the V17 mature supervised backbone path."
             ),
         )
     raise ValueError(f"Unknown backbone={backbone}. Supported backbones: {SUPPORTED_BACKBONES}")
@@ -117,6 +139,17 @@ def build_segmentor(
         from ra_ov3dseg.models.cylinder_spconv_unet import CylinderSpConvUNet
 
         return CylinderSpConvUNet(
+            feature_dim=feature_dim,
+            num_classes=num_classes,
+            voxel_size=voxel_size,
+            point_cloud_range=point_cloud_range,
+            base_channels=sparse_base_channels,
+        )
+
+    if backbone == POINTCEPT_SPUNET_BACKBONE:
+        from ra_ov3dseg.models.pointcept_spunet_adapter import PointceptSpUNetAdapter
+
+        return PointceptSpUNetAdapter(
             feature_dim=feature_dim,
             num_classes=num_classes,
             voxel_size=voxel_size,

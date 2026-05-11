@@ -1,5 +1,6 @@
 data/
 outputs/
+tmp/
 *.npz
 *.pth
 *.pt

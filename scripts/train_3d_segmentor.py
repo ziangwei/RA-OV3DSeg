@@ -104,7 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--backbone",
         default=DEBUG_BACKBONE,
         choices=list(SUPPORTED_BACKBONES),
-        help="3D backbone. debug_point_mlp is only a smoke-test model; spconv_resunet is the stronger upper-bound check.",
+        help=(
+            "3D backbone. debug_point_mlp is only a smoke-test model; "
+            "pointcept_spunet is the V17 mature vendored SparseUNet path."
+        ),
     )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"], help="Training device.")
     parser.add_argument("--epochs", default=2, type=int)
