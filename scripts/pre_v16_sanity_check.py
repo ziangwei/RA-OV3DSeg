@@ -391,7 +391,7 @@ def main() -> int:
     for check in checks:
         logger.info("[%s] %s | %s", check["status"].upper(), check["name"], check["message"])
 
-    print("========== SEND_THIS_TO_CODEX ==========")
+    print("========== RUN_CONCLUSION ==========")
     print(f"stage=pre_v16_sanity")
     print(f"status={status}")
     print(f"total_points={summary['aggregate']['total_points']}")
@@ -405,7 +405,7 @@ def main() -> int:
     print(f"summary_json={summary_path}")
     print(f"report_md={report_path}")
     print("checks=" + "; ".join(f"{check['name']}:{check['status']}" for check in checks))
-    print("========================================")
+    print("====================================")
 
     if args.strict and hard_fail:
         return 1

@@ -1643,7 +1643,7 @@ def main() -> int:
             level = logger.error
         level("[%s] %s | %s", check["status"].upper(), check["name"], check["message"])
 
-    print("========== SEND_THIS_TO_CODEX ==========")
+    print("========== RUN_CONCLUSION ==========")
     print(f"stage={args.stage}")
     print(f"verification_status={summary['status']}")
     print(f"passed={len(passed)}")
@@ -1656,7 +1656,7 @@ def main() -> int:
         print("failed_details=" + " | ".join(f"{check['name']}:{check['message']}" for check in failed[:5]))
     if warned:
         print("warned_details=" + " | ".join(f"{check['name']}:{check['message']}" for check in warned[:5]))
-    print("========================================")
+    print("====================================")
 
     return 0 if not failed else 1
 

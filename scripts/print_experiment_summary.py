@@ -65,7 +65,7 @@ def main() -> int:
         with output_json.open("w", encoding="utf-8") as file:
             json.dump(summary, file, ensure_ascii=False, indent=2)
 
-    print("========== SEND_THIS_TO_CODEX ==========")
+    print("========== RUN_CONCLUSION ==========")
     print(f"stage={summary['stage']}")
     print(f"experiment_dir={summary['experiment_dir']}")
     print(f"train_status={summary['train_status']}")
@@ -82,7 +82,7 @@ def main() -> int:
     print(f"final_eval_num_points={summary['final_eval_num_points']}")
     print(f"final_eval_num_valid_pred_points={summary['final_eval_num_valid_pred_points']}")
     print(f"best_checkpoint={summary['best_checkpoint']}")
-    print("========================================")
+    print("====================================")
     return 0
 
 

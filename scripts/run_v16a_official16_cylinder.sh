@@ -334,13 +334,20 @@ if [[ "${SKIP_EVAL}" != "1" ]]; then
   run_step "eval_v16a_best_checkpoint_official16" "${EVAL_COMMAND[@]}"
 fi
 
-run_step "print_compact_summary" "${SUMMARY_COMMAND[@]}"
-
 {
   echo "[INFO] V16a official-16 cylinder baseline finished at $(date -Is)"
   echo "[INFO] exit_status=0"
   echo "[INFO] log_file=${LOG_FILE}"
   echo "[INFO] latest_log=${LATEST_LOG}"
+  echo "[INFO] final compact conclusion follows; paste this block back if needed:"
 } 2>&1 | tee -a "${LOG_FILE}"
+
+set +e
+"${SUMMARY_COMMAND[@]}" 2>&1 | tee -a "${LOG_FILE}"
+SUMMARY_STATUS=${PIPESTATUS[0]}
+set -e
+if [[ "${SUMMARY_STATUS}" != "0" ]]; then
+  echo "[WARN] compact conclusion failed | status=${SUMMARY_STATUS}" | tee -a "${LOG_FILE}" >&2
+fi
 
 exit 0
