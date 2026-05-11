@@ -430,6 +430,7 @@ PointClip + CenterShift
   -> Pointcept-style local GridSample
   -> random voxel representative during training
   -> dense point-level CE after voxel logits are gathered back
+  -> class-balanced CE + Lovasz by default
   -> model_valid / unmatched voxel diagnostics in every epoch log
 ```
 
@@ -438,7 +439,7 @@ Smoke run:
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_smoke_pointce_repclip \
+  --experiment_name trainval_v17_pointcept_spunet_smoke_pointce_lovasz_repclip \
   --train_max_samples 8 \
   --eval_start_idx 128 \
   --eval_max_samples 8 \
@@ -451,7 +452,7 @@ Default 128-sample run:
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_128_pointce_repclip
+  --experiment_name trainval_v17_pointcept_spunet_128_pointce_lovasz_repclip
 ```
 
 Verify:
@@ -460,7 +461,7 @@ Verify:
 python scripts/verify_mvp_outputs.py \
   --stage v17 \
   --outputs_dir outputs \
-  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_pointce_repclip \
+  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_pointce_lovasz_repclip \
   --output_dir outputs/verification
 ```
 

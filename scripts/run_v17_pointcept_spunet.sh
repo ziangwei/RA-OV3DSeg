@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DATAROOT="${PROJECT_ROOT}/data/nuscenes"
 OUTPUTS_DIR="${PROJECT_ROOT}/outputs"
-EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_pointce_repclip"
+EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_pointce_lovasz_repclip"
 TRAIN_START_IDX=0
 TRAIN_MAX_SAMPLES=128
 EVAL_START_IDX=128
@@ -21,7 +21,7 @@ LR=0.002
 WEIGHT_DECAY=0.005
 LR_SCHEDULER="onecycle"
 SUPERVISION_MODE="point"
-LOVASZ_WEIGHT=0.0
+LOVASZ_WEIGHT=1.0
 DICE_WEIGHT=0.0
 EVAL_EVERY=2
 DEVICE="cuda"
@@ -30,7 +30,7 @@ AMP=1
 AUGMENT=1
 SKIP_EXISTING=0
 SKIP_CLASS_FREQ=0
-USE_CLASS_WEIGHTS=0
+USE_CLASS_WEIGHTS=1
 SKIP_TRAIN=0
 SKIP_PREDICT=0
 SKIP_EVAL=0
@@ -60,6 +60,9 @@ Main purpose:
   Default V17 supervision is dense point-level CE after voxel logits are gathered
   back to original points. Use --supervision_mode voxel only for Pointcept-style
   representative-voxel ablation.
+  Default V17 loss uses class-balanced CE + Lovasz, matching the V16a supervised
+  baseline's IoU-oriented recipe. Use --no_class_weights --lovasz_weight 0 for
+  pure Pointcept CE ablations only.
 
 Examples:
   bash scripts/run_v17_pointcept_spunet.sh \

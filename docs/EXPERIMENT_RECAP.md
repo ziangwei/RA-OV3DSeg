@@ -209,7 +209,7 @@ case, keep its `precompute/`, `training/`, and logs.
 
 1. Run V17 overfit/smoke after the Pointcept contract fix:
    dense point CE, random voxel representatives, PointClip/CenterShift, jitter,
-   and voxel-gather diagnostics.
+   class-balanced CE + Lovasz, and voxel-gather diagnostics.
 
 2. Do not run 128/1024 V17 until the 2-sample same-train/eval overfit gate is healthy.
 
