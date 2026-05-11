@@ -423,12 +423,22 @@ V17 vendors a minimal Pointcept SpUNet v1m1 backbone into this repository and
 runs it through the existing RA-OV3DSeg train/predict/eval stack. It does not
 require a second repository or a second conda environment.
 
+Current V17 contract:
+
+```text
+PointClip + CenterShift
+  -> Pointcept-style local GridSample
+  -> random voxel representative during training
+  -> dense point-level CE after voxel logits are gathered back
+  -> model_valid / unmatched voxel diagnostics in every epoch log
+```
+
 Smoke run:
 
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_smoke_recipe \
+  --experiment_name trainval_v17_pointcept_spunet_smoke_pointce_repclip \
   --train_max_samples 8 \
   --eval_start_idx 128 \
   --eval_max_samples 8 \
@@ -441,7 +451,7 @@ Default 128-sample run:
 ```bash
 bash scripts/run_v17_pointcept_spunet.sh \
   --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-  --experiment_name trainval_v17_pointcept_spunet_128_recipe
+  --experiment_name trainval_v17_pointcept_spunet_128_pointce_repclip
 ```
 
 Verify:
@@ -450,7 +460,7 @@ Verify:
 python scripts/verify_mvp_outputs.py \
   --stage v17 \
   --outputs_dir outputs \
-  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_recipe \
+  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_pointce_repclip \
   --output_dir outputs/verification
 ```
 

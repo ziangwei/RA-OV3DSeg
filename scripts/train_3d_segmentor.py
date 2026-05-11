@@ -131,6 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--onecycle_pct_start", default=0.04, type=float)
     parser.add_argument("--onecycle_div_factor", default=10.0, type=float)
     parser.add_argument("--onecycle_final_div_factor", default=100.0, type=float)
+    parser.add_argument(
+        "--supervision_mode",
+        default="point",
+        choices=["auto", "point", "voxel"],
+        help=(
+            "auto uses backbone-provided voxel supervision when present; point forces dense point-level CE "
+            "after voxel logits are gathered back; voxel forces representative-voxel CE."
+        ),
+    )
     parser.add_argument("--ce_weight", default=1.0, type=float)
     parser.add_argument("--class_weights_path", default=None, type=str, help="Optional JSON from compute_class_frequencies.py.")
     parser.add_argument("--distill_weight", default=1.0, type=float)
@@ -162,6 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--aug_scale_min", default=0.95, type=float)
     parser.add_argument("--aug_scale_max", default=1.05, type=float)
     parser.add_argument("--aug_dropout_prob", default=0.1, type=float)
+    parser.add_argument("--aug_jitter_sigma", default=0.005, type=float)
+    parser.add_argument("--aug_jitter_clip", default=0.02, type=float)
     parser.add_argument("--eval_start_idx", default=None, type=int, help="Optional eval start sample index for in-training mIoU.")
     parser.add_argument("--eval_max_samples", default=0, type=int, help="Number of eval samples for in-training mIoU.")
     parser.add_argument("--eval_every", default=0, type=int, help="Evaluate and update best checkpoint every N epochs.")
@@ -276,6 +287,10 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
         "base_supervised_points",
         "distill_points",
         "dense_distill_points",
+        "model_valid_points",
+        "num_voxels_sum",
+        "unmatched_voxels_sum",
+        "pointclip_changed_points",
         "total_loss_sum",
         "ce_loss_sum",
         "lovasz_loss_sum",
@@ -301,6 +316,10 @@ def reduce_epoch_stats(stats: dict[str, float], torch_module, device, distribute
     reduced["avg_dense_logit_loss"] = reduced["dense_logit_loss_sum"] / steps
     reduced["avg_text_align_loss"] = reduced["text_align_loss_sum"] / steps
     reduced["avg_grad_norm"] = reduced["grad_norm_sum"] / steps
+    reduced["avg_num_voxels"] = reduced["num_voxels_sum"] / steps
+    reduced["avg_unmatched_voxels"] = reduced["unmatched_voxels_sum"] / steps
+    reduced["model_valid_ratio"] = reduced["model_valid_points"] / max(reduced["points"], 1.0)
+    reduced["pointclip_changed_ratio"] = reduced["pointclip_changed_points"] / max(reduced["points"], 1.0)
     return reduced
 
 
@@ -615,6 +634,8 @@ def main() -> int:
         scale_min=float(args.aug_scale_min),
         scale_max=float(args.aug_scale_max),
         dropout_prob=float(args.aug_dropout_prob),
+        jitter_sigma=float(args.aug_jitter_sigma),
+        jitter_clip=float(args.aug_jitter_clip),
     )
     if args.data_source == "raw_lidarseg":
         train_dataset = RawLidarsegDataset(
@@ -811,6 +832,7 @@ def main() -> int:
                 args.onecycle_div_factor,
                 args.onecycle_final_div_factor,
             )
+        logger.info("supervision mode | requested=%s", args.supervision_mode)
         if args.augment:
             logger.info("point augmentation enabled | %s", augmentation_config)
 
@@ -826,6 +848,10 @@ def main() -> int:
             "base_supervised_points": 0.0,
             "distill_points": 0.0,
             "dense_distill_points": 0.0,
+            "model_valid_points": 0.0,
+            "num_voxels_sum": 0.0,
+            "unmatched_voxels_sum": 0.0,
+            "pointclip_changed_points": 0.0,
             "total_loss_sum": 0.0,
             "ce_loss_sum": 0.0,
             "lovasz_loss_sum": 0.0,
@@ -846,7 +872,14 @@ def main() -> int:
                     "model_valid_mask",
                     torch.ones_like(torch_batch[ce_label_key], dtype=torch.bool),
                 )
-                if "supervised_logits" in outputs and "supervised_label_indices" in outputs:
+                use_voxel_supervision = (
+                    args.supervision_mode in {"auto", "voxel"}
+                    and "supervised_logits" in outputs
+                    and "supervised_label_indices" in outputs
+                )
+                if args.supervision_mode == "voxel" and not use_voxel_supervision:
+                    raise ValueError("--supervision_mode voxel requires backbone outputs supervised_logits/supervised_label_indices.")
+                if use_voxel_supervision:
                     supervised_logits = outputs["supervised_logits"]
                     supervised_label_indices = outputs["supervised_label_indices"].long()
                     effective_train_labels = torch_batch[ce_label_key][supervised_label_indices].clone()
@@ -963,12 +996,22 @@ def main() -> int:
             if not use_dense_logit_distill:
                 dense_distill_points = 0
             num_points = int(torch_batch["point_xyz"].shape[0])
+            model_valid_points = int(torch.sum(output_valid_mask).detach().cpu().item())
+            num_voxels = int(outputs.get("num_voxels", torch.tensor(0, device=device)).detach().cpu().item())
+            unmatched_voxels = int(outputs.get("num_unmatched_voxels", torch.tensor(0, device=device)).detach().cpu().item())
+            pointclip_changed_points = int(
+                outputs.get("pointclip_changed_points", torch.tensor(0, device=device)).detach().cpu().item()
+            )
 
             local_stats["steps"] += 1.0
             local_stats["points"] += float(num_points)
             local_stats["base_supervised_points"] += float(base_points)
             local_stats["distill_points"] += float(distill_points)
             local_stats["dense_distill_points"] += float(dense_distill_points)
+            local_stats["model_valid_points"] += float(model_valid_points)
+            local_stats["num_voxels_sum"] += float(num_voxels)
+            local_stats["unmatched_voxels_sum"] += float(unmatched_voxels)
+            local_stats["pointclip_changed_points"] += float(pointclip_changed_points)
             local_stats["total_loss_sum"] += float(total_loss.detach().cpu().item())
             local_stats["ce_loss_sum"] += float(ce_loss.detach().cpu().item())
             local_stats["lovasz_loss_sum"] += float(lovasz_loss.detach().cpu().item())
@@ -991,6 +1034,11 @@ def main() -> int:
             "base_supervised_points": int(epoch_stats["base_supervised_points"]),
             "distill_points": int(epoch_stats["distill_points"]),
             "dense_distill_points": int(epoch_stats["dense_distill_points"]),
+            "model_valid_points": int(epoch_stats["model_valid_points"]),
+            "avg_num_voxels": float(epoch_stats["avg_num_voxels"]),
+            "avg_unmatched_voxels": float(epoch_stats["avg_unmatched_voxels"]),
+            "model_valid_ratio": float(epoch_stats["model_valid_ratio"]),
+            "pointclip_changed_ratio": float(epoch_stats["pointclip_changed_ratio"]),
             "avg_total_loss": float(epoch_stats["avg_total_loss"]),
             "avg_ce_loss": float(epoch_stats["avg_ce_loss"]),
             "avg_lovasz_loss": float(epoch_stats["avg_lovasz_loss"]),
@@ -1007,7 +1055,8 @@ def main() -> int:
                 (
                     "epoch=%d | loss=%.6f | ce=%.6f | lovasz=%.6f | dice=%.6f | "
                     "feature_distill=%.6f | dense_logit=%.6f | text_align=%.6f | "
-                    "points=%d | base_points=%d | feature_points=%d | dense_points=%d"
+                    "points=%d | base_points=%d | model_valid=%.6f | voxels=%.1f | unmatched_voxels=%.1f | "
+                    "pointclip_changed=%.6f | feature_points=%d | dense_points=%d"
                 ),
                 epoch,
                 epoch_log["avg_total_loss"],
@@ -1019,6 +1068,10 @@ def main() -> int:
                 epoch_log["avg_text_align_loss"],
                 epoch_log["points"],
                 epoch_log["base_supervised_points"],
+                epoch_log["model_valid_ratio"],
+                epoch_log["avg_num_voxels"],
+                epoch_log["avg_unmatched_voxels"],
+                epoch_log["pointclip_changed_ratio"],
                 epoch_log["distill_points"],
                 epoch_log["dense_distill_points"],
             )
@@ -1119,6 +1172,7 @@ def main() -> int:
                 "onecycle_div_factor": args.onecycle_div_factor,
                 "onecycle_final_div_factor": args.onecycle_final_div_factor,
             },
+            "supervision_mode": args.supervision_mode,
             "dense_point_dir": str(Path(args.dense_point_dir).expanduser().resolve()),
             "init_checkpoint": str(Path(args.init_checkpoint).expanduser().resolve()) if args.init_checkpoint else "",
             "load_dense_logits": load_dense_logits,
@@ -1151,6 +1205,8 @@ def main() -> int:
                 "scale_min": args.aug_scale_min,
                 "scale_max": args.aug_scale_max,
                 "dropout_prob": args.aug_dropout_prob,
+                "jitter_sigma": args.aug_jitter_sigma,
+                "jitter_clip": args.aug_jitter_clip,
             },
             "eval_during_training": {
                 "enabled": eval_loader is not None,

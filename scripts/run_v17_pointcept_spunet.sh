@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DATAROOT="${PROJECT_ROOT}/data/nuscenes"
 OUTPUTS_DIR="${PROJECT_ROOT}/outputs"
-EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_recipe"
+EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_pointce_repclip"
 TRAIN_START_IDX=0
 TRAIN_MAX_SAMPLES=128
 EVAL_START_IDX=128
@@ -20,6 +20,7 @@ FEATURE_DIM=128
 LR=0.002
 WEIGHT_DECAY=0.005
 LR_SCHEDULER="onecycle"
+SUPERVISION_MODE="point"
 LOVASZ_WEIGHT=0.0
 DICE_WEIGHT=0.0
 EVAL_EVERY=2
@@ -56,6 +57,9 @@ Expected runtime:
 Main purpose:
   Test a mature vendored Pointcept SpConv SparseUNet backend inside RA-OV3DSeg's
   own train/predict/eval pipeline, without switching repo or conda env.
+  Default V17 supervision is dense point-level CE after voxel logits are gathered
+  back to original points. Use --supervision_mode voxel only for Pointcept-style
+  representative-voxel ablation.
 
 Examples:
   bash scripts/run_v17_pointcept_spunet.sh \
@@ -85,6 +89,7 @@ Options:
   --lr LR
   --weight_decay WD
   --lr_scheduler none|onecycle
+  --supervision_mode auto|point|voxel
   --lovasz_weight W
   --dice_weight W
   --eval_every N
@@ -125,6 +130,7 @@ while [[ $# -gt 0 ]]; do
     --lr) LR="$2"; shift 2 ;;
     --weight_decay) WEIGHT_DECAY="$2"; shift 2 ;;
     --lr_scheduler) LR_SCHEDULER="$2"; shift 2 ;;
+    --supervision_mode) SUPERVISION_MODE="$2"; shift 2 ;;
     --lovasz_weight) LOVASZ_WEIGHT="$2"; shift 2 ;;
     --dice_weight) DICE_WEIGHT="$2"; shift 2 ;;
     --eval_every) EVAL_EVERY="$2"; shift 2 ;;
@@ -221,6 +227,7 @@ TRAIN_CORE=(
   --lr "${LR}"
   --weight_decay "${WEIGHT_DECAY}"
   --lr_scheduler "${LR_SCHEDULER}"
+  --supervision_mode "${SUPERVISION_MODE}"
   --ce_weight 1.0
   --lovasz_weight "${LOVASZ_WEIGHT}"
   --dice_weight "${DICE_WEIGHT}"
@@ -301,6 +308,7 @@ SUMMARY_COMMAND=(
   echo "[INFO] label_space=official_lidarseg_16"
   echo "[INFO] lr=${LR}"
   echo "[INFO] lr_scheduler=${LR_SCHEDULER}"
+  echo "[INFO] supervision_mode=${SUPERVISION_MODE}"
   echo "[INFO] class_weights=${USE_CLASS_WEIGHTS}"
   echo "[INFO] lovasz_weight=${LOVASZ_WEIGHT}"
   echo "[INFO] voxel_size=${VOXEL_SIZE}"

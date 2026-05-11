@@ -65,12 +65,46 @@ class PointceptSpUNetAdapter(nn.Module):
         # while preserving RA-OV3DSeg's point_features interface.
         self.classifier = nn.Linear(decoder_dim, num_classes)
 
-    def _make_point_features(self, point_xyz: torch.Tensor, point_input_features: torch.Tensor | None) -> torch.Tensor:
+    def _clip_and_center_points(
+        self,
+        point_xyz: torch.Tensor,
+        point_batch_indices: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Match Pointcept-style PointClip + CenterShift before voxelization.
+
+        PointClip clamps coordinates instead of dropping points in Pointcept. Keeping
+        all original point rows is important because RA-OV3DSeg evaluates dense
+        point predictions after voxel logits are gathered back.
+        """
+
+        pc_range = torch.as_tensor(self.voxel_config.point_cloud_range, dtype=point_xyz.dtype, device=point_xyz.device)
+        pc_min = pc_range[:3]
+        pc_max = pc_range[3:]
+        clipped = torch.minimum(torch.maximum(point_xyz, pc_min), pc_max)
+        centered = torch.empty_like(clipped)
+        for batch_id in torch.unique(point_batch_indices.long(), sorted=True):
+            batch_mask = point_batch_indices.long() == batch_id
+            batch_points = clipped[batch_mask]
+            x_min, y_min, z_min = torch.min(batch_points, dim=0).values
+            x_max, y_max, _ = torch.max(batch_points, dim=0).values
+            shift = torch.stack([(x_min + x_max) * 0.5, (y_min + y_max) * 0.5, z_min])
+            centered[batch_mask] = batch_points - shift
+        return centered, clipped
+
+    def _make_point_features(
+        self,
+        point_xyz_for_model: torch.Tensor,
+        point_input_features: torch.Tensor | None,
+    ) -> torch.Tensor:
         if point_input_features is None or point_input_features.numel() == 0:
-            intensity = torch.zeros((point_xyz.shape[0], 1), dtype=point_xyz.dtype, device=point_xyz.device)
+            intensity = torch.zeros(
+                (point_xyz_for_model.shape[0], 1),
+                dtype=point_xyz_for_model.dtype,
+                device=point_xyz_for_model.device,
+            )
         else:
-            intensity = point_input_features[:, :1].to(dtype=point_xyz.dtype, device=point_xyz.device)
-        return torch.cat([point_xyz, intensity], dim=1)
+            intensity = point_input_features[:, :1].to(dtype=point_xyz_for_model.dtype, device=point_xyz_for_model.device)
+        return torch.cat([point_xyz_for_model, intensity], dim=1)
 
     def _voxel_offsets(self, voxel_coords_bxyz: torch.Tensor) -> torch.Tensor:
         batch_indices = voxel_coords_bxyz[:, 0].long()
@@ -125,15 +159,19 @@ class PointceptSpUNetAdapter(nn.Module):
 
         point_to_voxel = torch.full((point_xyz.shape[0],), -1, dtype=torch.long, device=device)
         point_to_voxel[valid_indices] = inverse.long()
-        voxel_point_indices = torch.full(
-            (int(voxel_coords.shape[0]),),
-            point_xyz.shape[0],
-            dtype=torch.long,
-            device=device,
+        num_voxels = int(voxel_coords.shape[0])
+        counts = torch.bincount(inverse.long(), minlength=num_voxels)
+        sort_order = torch.argsort(inverse.long(), stable=True)
+        offsets = torch.cumsum(
+            torch.cat([counts.new_zeros(1), counts[:-1]]),
+            dim=0,
         )
-        voxel_point_indices.scatter_reduce_(0, inverse.long(), valid_indices.long(), reduce="amin", include_self=True)
-        if torch.any(voxel_point_indices >= point_xyz.shape[0]):
-            raise RuntimeError("Pointcept voxelization produced an empty representative voxel.")
+        if self.training:
+            random_offsets = torch.floor(torch.rand(num_voxels, device=device) * counts.to(torch.float32)).long()
+            selected_sorted_positions = offsets + random_offsets
+        else:
+            selected_sorted_positions = offsets
+        voxel_point_indices = valid_indices[sort_order[selected_sorted_positions]]
         # Pointcept GridSample keeps one real point per voxel; its feature and label
         # must come from the same representative point, not from voxel averaging.
         voxel_features = point_features[voxel_point_indices]
@@ -178,10 +216,11 @@ class PointceptSpUNetAdapter(nn.Module):
         point_xyz = batch["point_xyz"]
         point_batch_indices = batch["point_batch_indices"].long()
         point_input_features = batch.get("point_input_features")
-        point_features_in = self._make_point_features(point_xyz, point_input_features)
+        point_xyz_for_model, point_xyz_clipped = self._clip_and_center_points(point_xyz, point_batch_indices)
+        point_features_in = self._make_point_features(point_xyz_for_model, point_input_features)
 
         voxelized = self._voxelize_pointcept_grid(
-            point_xyz=point_xyz,
+            point_xyz=point_xyz_for_model,
             point_features=point_features_in,
             point_batch_indices=point_batch_indices,
         )
@@ -208,11 +247,18 @@ class PointceptSpUNetAdapter(nn.Module):
         supervised_logits = voxel_logits[voxel_to_final[input_voxel_valid]]
         supervised_label_indices = voxelized["voxel_point_indices"][input_voxel_valid]
         point_features = F.normalize(point_embeddings_raw, dim=-1)
+        num_voxels = voxelized["num_voxels"]
+        unmatched_voxels = torch.sum(voxel_to_final < 0).to(dtype=torch.long)
+        pointclip_changed = torch.any(torch.abs(point_xyz - point_xyz_clipped) > 1e-5, dim=1)
         return {
             "point_features": point_features,
             "logits": logits,
             "supervised_logits": supervised_logits,
             "supervised_label_indices": supervised_label_indices,
             "model_valid_mask": model_valid_mask,
-            "num_voxels": voxelized["num_voxels"],
+            "num_voxels": num_voxels,
+            "num_input_voxels": num_voxels,
+            "num_output_voxels": torch.as_tensor(int(sparse_out.features.shape[0]), dtype=torch.long, device=point_xyz.device),
+            "num_unmatched_voxels": unmatched_voxels,
+            "pointclip_changed_points": torch.sum(pointclip_changed).to(dtype=torch.long),
         }

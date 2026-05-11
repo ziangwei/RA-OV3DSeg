@@ -39,6 +39,8 @@ def main() -> int:
     eval_metrics = eval_summary.get("aggregate_metrics", {})
     best_eval = train_summary.get("eval_during_training", {})
     best_train_metrics = best_eval.get("best_eval_metrics", {})
+    epoch_logs = train_summary.get("epoch_logs", [])
+    final_epoch = epoch_logs[-1] if epoch_logs else {}
 
     summary = {
         "stage": args.stage,
@@ -46,8 +48,13 @@ def main() -> int:
         "train_status": train_summary.get("status", "missing"),
         "backbone": train_summary.get("backbone", {}).get("backbone", "missing"),
         "student_output_space": train_summary.get("student_output_space", "missing"),
+        "supervision_mode": train_summary.get("supervision_mode", ""),
         "epochs_completed": train_summary.get("epochs_completed"),
         "num_samples": train_summary.get("num_samples"),
+        "final_train_ce": final_epoch.get("avg_ce_loss"),
+        "final_train_model_valid_ratio": final_epoch.get("model_valid_ratio"),
+        "final_train_avg_unmatched_voxels": final_epoch.get("avg_unmatched_voxels"),
+        "final_train_pointclip_changed_ratio": final_epoch.get("pointclip_changed_ratio"),
         "best_train_eval_miou": best_eval.get("best_eval_miou"),
         "best_train_eval_epoch": best_train_metrics.get("epoch"),
         "final_eval_all_miou": eval_metrics.get("all_miou"),
@@ -71,8 +78,13 @@ def main() -> int:
     print(f"train_status={summary['train_status']}")
     print(f"backbone={summary['backbone']}")
     print(f"student_output_space={summary['student_output_space']}")
+    print(f"supervision_mode={summary['supervision_mode']}")
     print(f"epochs_completed={summary['epochs_completed']}")
     print(f"num_samples={summary['num_samples']}")
+    print(f"final_train_ce={compact_float(summary['final_train_ce'])}")
+    print(f"final_train_model_valid_ratio={compact_float(summary['final_train_model_valid_ratio'])}")
+    print(f"final_train_avg_unmatched_voxels={compact_float(summary['final_train_avg_unmatched_voxels'])}")
+    print(f"final_train_pointclip_changed_ratio={compact_float(summary['final_train_pointclip_changed_ratio'])}")
     print(f"best_train_eval_miou={compact_float(summary['best_train_eval_miou'])}")
     print(f"best_train_eval_epoch={summary['best_train_eval_epoch']}")
     print(f"final_eval_all_miou={compact_float(summary['final_eval_all_miou'])}")

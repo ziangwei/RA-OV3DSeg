@@ -259,10 +259,13 @@ third_party/pointcept_spunet/
   -> existing train_3d_segmentor / predict_3d_segmentor / eval_lidarseg scripts
 ```
 
-Only the recipe-fixed V17 runs should be used for decisions. The first V17
-adapter had an extra embedding bottleneck, and the first headfix still used a
-non-Pointcept fixed global grid / short training recipe. Both are recorded only
-as negative debugging results.
+Only the contract-fixed V17 runs should be used for decisions. The first V17
+adapter had an extra embedding bottleneck, and later headfix/recipe runs still
+missed key Pointcept contracts. Current V17 requires PointClip/CenterShift,
+random voxel representatives during training, dense point-level CE after
+voxel-logit gather, and explicit `model_valid_ratio` / unmatched-voxel logging.
+The next gate is a same-sample overfit test; 128/1024 V17 runs are blocked until
+that gate is healthy.
 
 The final experiments should compare:
 

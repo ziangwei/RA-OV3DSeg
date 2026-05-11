@@ -13,6 +13,8 @@ class PointAugmentationConfig:
     scale_min: float = 0.95
     scale_max: float = 1.05
     dropout_prob: float = 0.1
+    jitter_sigma: float = 0.005
+    jitter_clip: float = 0.02
 
 
 def augment_point_xyz(
@@ -53,6 +55,12 @@ def augment_point_xyz(
     if scale_min > 0 and scale_max > 0 and scale_max != 1.0:
         scale = float(rng.uniform(scale_min, scale_max))
         augmented *= np.float32(scale)
+
+    jitter_sigma = float(max(config.jitter_sigma, 0.0))
+    jitter_clip = float(max(config.jitter_clip, 0.0))
+    if jitter_sigma > 0.0 and jitter_clip > 0.0:
+        jitter = rng.normal(0.0, jitter_sigma, size=augmented.shape)
+        augmented += np.clip(jitter, -jitter_clip, jitter_clip).astype(np.float32)
 
     dropout_prob = float(np.clip(config.dropout_prob, 0.0, 0.95))
     keep_mask = np.ones(augmented.shape[0], dtype=bool)

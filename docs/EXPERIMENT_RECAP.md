@@ -207,12 +207,15 @@ case, keep its `precompute/`, `training/`, and logs.
 
 ## Next Decisions
 
-1. Run V17 voxel-CE smoke after the training-contract fix.
+1. Run V17 overfit/smoke after the Pointcept contract fix:
+   dense point CE, random voxel representatives, PointClip/CenterShift, jitter,
+   and voxel-gather diagnostics.
 
-2. If V17 voxel-CE smoke passes, run V17 recipe 128 and compare against V16a at a similar scale.
+2. Do not run 128/1024 V17 until the 2-sample same-train/eval overfit gate is healthy.
 
-3. If V17 recipe still underperforms V16a, debug the adapter against Pointcept's recipe
-   before adding any teacher or open-vocabulary experiment.
+3. If the overfit gate fails, debug adapter/backbone contract first:
+   `model_valid_ratio`, `avg_unmatched_voxels`, label mapping, and feature/label
+   representative alignment.
 
 4. Re-enter open-vocabulary only after a supervised baseline is strong enough to
    make distillation meaningful.

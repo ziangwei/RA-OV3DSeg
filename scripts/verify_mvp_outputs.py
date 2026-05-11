@@ -1595,7 +1595,6 @@ def verify_pointcept_spunet_v17(outputs_dir: Path, args, checks: list[dict[str, 
     if check_file(training_summary_path, checks, "v17_training_summary_json"):
         training_summary = load_json(training_summary_path)
         backbone = training_summary.get("backbone", {})
-        loss_weights = training_summary.get("loss_weights", {})
         class_weights = training_summary.get("class_weights", {})
         eval_info = training_summary.get("eval_during_training", {})
         epoch_logs = training_summary.get("epoch_logs", [])
@@ -1639,17 +1638,21 @@ def verify_pointcept_spunet_v17(outputs_dir: Path, args, checks: list[dict[str, 
         )
         add_check(
             checks,
-            "v17_lovasz_or_dice_enabled",
-            float(loss_weights.get("lovasz_weight", 0.0)) > 0.0 or float(loss_weights.get("dice_weight", 0.0)) > 0.0,
-            f"loss_weights={loss_weights}",
-            loss_weights,
+            "v17_dense_point_supervision",
+            training_summary.get("supervision_mode") == "point",
+            f"supervision_mode={training_summary.get('supervision_mode')}",
+            training_summary.get("supervision_mode"),
         )
-        add_check(checks, "v17_class_weights_enabled", bool(class_weights), f"class_weights={class_weights}", class_weights)
+        add_check(checks, "v17_class_weights_recorded", isinstance(class_weights, dict), f"class_weights={class_weights}", class_weights)
         add_check(checks, "v17_eval_during_training", bool(eval_info.get("enabled", False)), f"eval={eval_info}", eval_info)
         add_check(
             checks,
             "v17_epoch_logs",
-            bool(epoch_logs) and "avg_lovasz_loss" in final_epoch and "eval" in final_epoch,
+            bool(epoch_logs)
+            and "avg_lovasz_loss" in final_epoch
+            and "model_valid_ratio" in final_epoch
+            and "avg_unmatched_voxels" in final_epoch
+            and "eval" in final_epoch,
             f"epochs={len(epoch_logs)}, final_keys={sorted(final_epoch.keys())}",
             final_epoch,
         )
