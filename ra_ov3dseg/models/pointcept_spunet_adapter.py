@@ -123,12 +123,6 @@ class PointceptSpUNetAdapter(nn.Module):
         )
         voxel_coords, inverse = torch.unique(valid_coords_bxyz, sorted=True, return_inverse=True, dim=0)
 
-        voxel_features = point_features.new_zeros((voxel_coords.shape[0], point_features.shape[1]))
-        voxel_features.index_add_(0, inverse, point_features[valid_indices])
-        counts = point_features.new_zeros((voxel_coords.shape[0], 1))
-        counts.index_add_(0, inverse, torch.ones((valid_indices.shape[0], 1), dtype=point_features.dtype, device=device))
-        voxel_features = voxel_features / torch.clamp(counts, min=1.0)
-
         point_to_voxel = torch.full((point_xyz.shape[0],), -1, dtype=torch.long, device=device)
         point_to_voxel[valid_indices] = inverse.long()
         voxel_point_indices = torch.full(
@@ -138,6 +132,11 @@ class PointceptSpUNetAdapter(nn.Module):
             device=device,
         )
         voxel_point_indices.scatter_reduce_(0, inverse.long(), valid_indices.long(), reduce="amin", include_self=True)
+        if torch.any(voxel_point_indices >= point_xyz.shape[0]):
+            raise RuntimeError("Pointcept voxelization produced an empty representative voxel.")
+        # Pointcept GridSample keeps one real point per voxel; its feature and label
+        # must come from the same representative point, not from voxel averaging.
+        voxel_features = point_features[voxel_point_indices]
         spatial_shape_xyz = (torch.max(voxel_coords[:, 1:], dim=0).values + 96).detach().cpu().tolist()
 
         return {

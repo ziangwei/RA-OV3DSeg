@@ -18,7 +18,7 @@ Modifications:
 - Added `return_sparse_tensor=True` path so RA-OV3DSeg can gather voxel features back to original points.
 - V17 adapter instantiates this module with `num_classes=0` and applies RA-OV3DSeg's own per-voxel linear classifier on decoder features. This avoids an extra embedding bottleneck while keeping checkpoint/prediction code centralized in RA-OV3DSeg.
 - Kept Pointcept's sparse coordinate convention (`[batch, x, y, z]`). The adapter performs Pointcept-style per-sample local grid shifting before calling this module.
-- Training uses voxel representative labels to match Pointcept `GridSample(mode="train")`; point-level logits are still gathered for prediction/evaluation.
+- Training uses voxel representative features and labels to match Pointcept `GridSample(mode="train")`; point-level logits are still gathered for prediction/evaluation.
 - Kept the SpConv SparseUNet encoder-decoder blocks and default channel/layer recipe from Pointcept's nuScenes config.
 
 Import rule:
