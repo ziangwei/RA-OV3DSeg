@@ -1,5 +1,11 @@
 # RA-OV3DSeg
 
+Current durable docs:
+
+- `docs/EXPERIMENT_RECAP.md`: project history, trusted metrics, technical decisions, interview framing, and output cleanup guide.
+- `docs/RUNNING_EXPERIMENTS.md`: server launch commands and verification commands.
+- `docs/ROADMAP.md`: corrected research direction and stage plan.
+
 ## Project Goal
 
 RA-OV3DSeg targets **Reliability-Aware Open-Vocabulary 3D Semantic Segmentation** for outdoor driving scenes.

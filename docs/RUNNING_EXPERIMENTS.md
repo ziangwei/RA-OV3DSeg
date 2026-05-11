@@ -4,6 +4,10 @@ All V9+ experiments should be launched through bash wrappers, not by pasting lon
 Python commands into the terminal. The wrapper records stdout/stderr, command
 arguments, GPU snapshot, and disk snapshot into `outputs/logs/`.
 
+Use `docs/EXPERIMENT_RECAP.md` as the durable result ledger. Once a result is
+recorded there, old large `outputs/` artifacts can usually be deleted unless an
+experiment needs to be resumed.
+
 ## V9 Trainval Subset
 
 Smoke test:
@@ -382,4 +386,78 @@ outputs/experiments/trainval_v15_cylinder_1024/class_frequencies.json
 outputs/experiments/trainval_v15_cylinder_1024/training/train_summary.json
 outputs/experiments/trainval_v15_cylinder_1024/training/cylinder_spconv_unet_best.pt
 outputs/experiments/trainval_v15_cylinder_1024/evaluation3d/batch_3d_eval_summary.json
+```
+
+## V16a Official-16 Cylinder Baseline
+
+V16a fixes the main V15 reliability issues: official nuScenes-lidarseg 16-class
+mapping and expanded prediction range.
+
+Default run:
+
+```bash
+bash scripts/run_v16a_official16_cylinder.sh
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v16a \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v16a_official16_cylinder_128 \
+  --output_dir outputs/verification
+```
+
+Key result recorded in `docs/EXPERIMENT_RECAP.md`:
+
+```text
+1024 train / 512 eval / 30 epochs
+best_eval_miou = 0.415858
+prediction_coverage = 0.998260
+```
+
+## V17 Pointcept SpUNet
+
+V17 vendors a minimal Pointcept SpUNet v1m1 backbone into this repository and
+runs it through the existing RA-OV3DSeg train/predict/eval stack. It does not
+require a second repository or a second conda environment.
+
+Smoke run:
+
+```bash
+bash scripts/run_v17_pointcept_spunet.sh \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --experiment_name trainval_v17_pointcept_spunet_smoke_headfix \
+  --train_max_samples 8 \
+  --eval_start_idx 128 \
+  --eval_max_samples 8 \
+  --epochs 2 \
+  --sparse_base_channels 16
+```
+
+Default 128-sample run:
+
+```bash
+bash scripts/run_v17_pointcept_spunet.sh \
+  --dataroot /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --experiment_name trainval_v17_pointcept_spunet_128_headfix
+```
+
+Verify:
+
+```bash
+python scripts/verify_mvp_outputs.py \
+  --stage v17 \
+  --outputs_dir outputs \
+  --experiment_dir outputs/experiments/trainval_v17_pointcept_spunet_128_headfix \
+  --output_dir outputs/verification
+```
+
+Report only the compact block:
+
+```text
+========== RUN_CONCLUSION ==========
+...
+====================================
 ```

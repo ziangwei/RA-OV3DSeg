@@ -3,6 +3,9 @@
 This project should not treat CLIP patch features as the final teacher, and it
 should not treat a fixed 32-way classifier as the final open-vocabulary model.
 
+For the current experiment history, trusted metrics, and output cleanup rules,
+see `docs/EXPERIMENT_RECAP.md`.
+
 ## Correct Mainline
 
 The intended research pipeline is:
@@ -234,6 +237,30 @@ raw LiDAR xyz + intensity
 
 This is the current default path for making the closed-set baseline credible
 before any further open-vocabulary or reliability-distillation claims.
+
+V16a fixes the major V15 interpretation problems:
+
+```text
+raw LiDAR xyz + intensity
+  -> official nuScenes-lidarseg 16-class mapping
+  -> expanded point-cloud range for near-complete prediction coverage
+  -> cylinder_spconv_unet supervised baseline
+```
+
+V16a is the first credible supervised baseline in this project. The 1024 train /
+512 eval run reached about `0.4159` mIoU with about `0.9983` prediction coverage.
+
+V17 integrates a mature vendored Pointcept SpUNet backbone without switching
+repositories or environments:
+
+```text
+third_party/pointcept_spunet/
+  -> ra_ov3dseg.models.pointcept_spunet_adapter
+  -> existing train_3d_segmentor / predict_3d_segmentor / eval_lidarseg scripts
+```
+
+Only the headfixed V17 runs should be used for decisions. The first V17 adapter
+had an extra embedding bottleneck and is recorded only as a negative result.
 
 The final experiments should compare:
 
