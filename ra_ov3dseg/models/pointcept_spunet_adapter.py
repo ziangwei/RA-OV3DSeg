@@ -131,11 +131,19 @@ class PointceptSpUNetAdapter(nn.Module):
 
         point_to_voxel = torch.full((point_xyz.shape[0],), -1, dtype=torch.long, device=device)
         point_to_voxel[valid_indices] = inverse.long()
+        voxel_point_indices = torch.full(
+            (int(voxel_coords.shape[0]),),
+            point_xyz.shape[0],
+            dtype=torch.long,
+            device=device,
+        )
+        voxel_point_indices.scatter_reduce_(0, inverse.long(), valid_indices.long(), reduce="amin", include_self=True)
         spatial_shape_xyz = (torch.max(voxel_coords[:, 1:], dim=0).values + 96).detach().cpu().tolist()
 
         return {
             "voxel_features": voxel_features,
             "voxel_coords": voxel_coords.int(),
+            "voxel_point_indices": voxel_point_indices,
             "point_to_voxel": point_to_voxel,
             "valid_point_mask": valid_point_mask,
             "spatial_shape": [int(value) for value in spatial_shape_xyz],
@@ -149,7 +157,7 @@ class PointceptSpUNetAdapter(nn.Module):
         spatial_shape: list[int],
         point_to_voxel: torch.Tensor,
         valid_point_mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         point_voxel_features = sparse_tensor.features.new_zeros((point_to_voxel.shape[0], sparse_tensor.features.shape[1]))
         final_hash = self._hash_indices(sparse_tensor.indices, spatial_shape)
         input_hash = self._hash_indices(input_voxel_coords, spatial_shape)
@@ -165,7 +173,7 @@ class PointceptSpUNetAdapter(nn.Module):
         point_voxel_index = voxel_to_final[torch.clamp(point_to_voxel, min=0)]
         model_valid_mask = valid_point_mask & (point_to_voxel >= 0) & (point_voxel_index >= 0)
         point_voxel_features[model_valid_mask] = sparse_tensor.features[point_voxel_index[model_valid_mask]]
-        return point_voxel_features, model_valid_mask
+        return point_voxel_features, model_valid_mask, point_voxel_index, voxel_to_final
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         point_xyz = batch["point_xyz"]
@@ -186,18 +194,26 @@ class PointceptSpUNetAdapter(nn.Module):
             "sparse_shape": torch.as_tensor(voxelized["spatial_shape"], dtype=torch.long, device=point_xyz.device),
         }
         sparse_out = self.backbone(input_dict, return_sparse_tensor=True)
-        point_embeddings_raw, model_valid_mask = self._gather_to_points(
+        point_embeddings_raw, model_valid_mask, point_voxel_index, voxel_to_final = self._gather_to_points(
             sparse_tensor=sparse_out,
             input_voxel_coords=voxelized["voxel_coords"],
             spatial_shape=voxelized["spatial_shape"],
             point_to_voxel=voxelized["point_to_voxel"],
             valid_point_mask=voxelized["valid_point_mask"],
         )
-        logits = self.classifier(point_embeddings_raw)
+        voxel_logits = self.classifier(sparse_out.features)
+        logits = voxel_logits.new_zeros((point_xyz.shape[0], self.num_classes))
+        logits[model_valid_mask] = voxel_logits[point_voxel_index[model_valid_mask]]
+
+        input_voxel_valid = voxel_to_final >= 0
+        supervised_logits = voxel_logits[voxel_to_final[input_voxel_valid]]
+        supervised_label_indices = voxelized["voxel_point_indices"][input_voxel_valid]
         point_features = F.normalize(point_embeddings_raw, dim=-1)
         return {
             "point_features": point_features,
             "logits": logits,
+            "supervised_logits": supervised_logits,
+            "supervised_label_indices": supervised_label_indices,
             "model_valid_mask": model_valid_mask,
             "num_voxels": voxelized["num_voxels"],
         }

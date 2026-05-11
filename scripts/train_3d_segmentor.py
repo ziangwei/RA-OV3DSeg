@@ -846,30 +846,38 @@ def main() -> int:
                     "model_valid_mask",
                     torch.ones_like(torch_batch[ce_label_key], dtype=torch.bool),
                 )
-                effective_train_labels = torch_batch[ce_label_key].clone()
-                effective_train_labels[~model_valid_mask] = IGNORE_INDEX
+                if "supervised_logits" in outputs and "supervised_label_indices" in outputs:
+                    supervised_logits = outputs["supervised_logits"]
+                    supervised_label_indices = outputs["supervised_label_indices"].long()
+                    effective_train_labels = torch_batch[ce_label_key][supervised_label_indices].clone()
+                    supervised_valid_mask = torch.ones_like(effective_train_labels, dtype=torch.bool)
+                else:
+                    supervised_logits = outputs["logits"]
+                    effective_train_labels = torch_batch[ce_label_key].clone()
+                    effective_train_labels[~model_valid_mask] = IGNORE_INDEX
+                    supervised_valid_mask = model_valid_mask
                 ce_loss = supervised_ce_loss(
-                    outputs["logits"],
+                    supervised_logits,
                     effective_train_labels,
                     ignore_index=IGNORE_INDEX,
                     class_weights=class_weights,
                 )
                 if args.lovasz_weight > 0.0:
                     lovasz_loss = lovasz_softmax_loss(
-                        outputs["logits"],
+                        supervised_logits,
                         effective_train_labels,
                         ignore_index=IGNORE_INDEX,
                     )
                 else:
-                    lovasz_loss = outputs["logits"].sum() * 0.0
+                    lovasz_loss = supervised_logits.sum() * 0.0
                 if args.dice_weight > 0.0:
                     supervised_dice_loss = dice_loss(
-                        outputs["logits"],
+                        supervised_logits,
                         effective_train_labels,
                         ignore_index=IGNORE_INDEX,
                     )
                 else:
-                    supervised_dice_loss = outputs["logits"].sum() * 0.0
+                    supervised_dice_loss = supervised_logits.sum() * 0.0
                 if use_feature_distill:
                     distill_loss = cosine_distillation_loss(
                         student_features=outputs["point_features"],
@@ -925,7 +933,7 @@ def main() -> int:
                 torch.ones_like(torch_batch[ce_label_key], dtype=torch.bool),
             )
             base_points = int(
-                torch.sum((torch_batch[ce_label_key] != IGNORE_INDEX) & output_valid_mask).detach().cpu().item()
+                torch.sum((effective_train_labels != IGNORE_INDEX) & supervised_valid_mask).detach().cpu().item()
             )
             distill_points = int(
                 torch.sum(

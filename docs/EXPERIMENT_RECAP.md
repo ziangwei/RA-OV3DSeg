@@ -90,7 +90,8 @@ set supervised baseline is clearly credible.
 | V16a | Official-16 cylinder supervised baseline | 1024 train / 512 eval / 30 epochs | best mIoU `0.415858`, coverage `0.998260` | First credible supervised baseline |
 | V17 old | Pointcept SpUNet initial adapter | 128 train / 128 eval / 10 epochs | all_mIoU `0.186444`, coverage `0.996193` | Invalid comparison: extra embedding bottleneck |
 | V17 headfix | Pointcept SpUNet direct supervised head | 128 train / 128 eval / 10 epochs | all_mIoU `0.162433`, coverage `0.996193` | Still invalid as final comparison; recipe/local-grid mismatch found |
-| V17 recipe | Pointcept-style local grid + OneCycleLR recipe | smoke/default pending | Pending | Current next step |
+| V17 recipe | Pointcept-style local grid + OneCycleLR recipe | smoke/default pending | Early training regressed | Found remaining mismatch: point-level repeated CE instead of voxel representative CE |
+| V17 voxel-CE | Pointcept-style local grid + voxel representative CE | smoke/default pending | Pending | Current next step |
 
 ## Important Lessons
 
@@ -206,9 +207,9 @@ case, keep its `precompute/`, `training/`, and logs.
 
 ## Next Decisions
 
-1. Run V17 recipe smoke after the local-grid and OneCycleLR fix.
+1. Run V17 voxel-CE smoke after the training-contract fix.
 
-2. If V17 recipe smoke passes, run V17 recipe 128 and compare against V16a at a similar scale.
+2. If V17 voxel-CE smoke passes, run V17 recipe 128 and compare against V16a at a similar scale.
 
 3. If V17 recipe still underperforms V16a, debug the adapter against Pointcept's recipe
    before adding any teacher or open-vocabulary experiment.
