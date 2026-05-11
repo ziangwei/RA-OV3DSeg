@@ -38,7 +38,6 @@ class PointceptSpUNetAdapter(nn.Module):
         self.voxel_config = VoxelizationConfig(voxel_size=voxel_size, point_cloud_range=point_cloud_range)
         self.input_channels = int(input_channels)
         self.base_channels = int(base_channels)
-        self.feature_dim = int(feature_dim)
         self.num_classes = int(num_classes)
 
         channels = (
@@ -51,14 +50,19 @@ class PointceptSpUNetAdapter(nn.Module):
             base_channels * 3,
             base_channels * 3,
         )
+        decoder_dim = int(channels[-1])
+        self.feature_dim = decoder_dim
+        self.requested_feature_dim = int(feature_dim)
         self.backbone = SpUNetBase(
             in_channels=input_channels,
-            num_classes=feature_dim,
+            num_classes=0,
             base_channels=base_channels,
             channels=channels,
             layers=(2, 3, 4, 6, 2, 2, 2, 2),
         )
-        self.classifier = nn.Linear(feature_dim, num_classes)
+        # Pointcept 的 supervised recipe 本质上是在 decoder voxel feature 上接一个 1x1 分类头。
+        # 这里用 Linear 做逐 voxel 分类，等价于每个稀疏 voxel 上的 1x1 head，同时保留 point_features 输出接口。
+        self.classifier = nn.Linear(decoder_dim, num_classes)
 
     def _make_point_features(self, point_xyz: torch.Tensor, point_input_features: torch.Tensor | None) -> torch.Tensor:
         if point_input_features is None or point_input_features.numel() == 0:

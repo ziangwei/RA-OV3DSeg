@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DATAROOT="${PROJECT_ROOT}/data/nuscenes"
 OUTPUTS_DIR="${PROJECT_ROOT}/outputs"
-EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128"
+EXPERIMENT_NAME="trainval_v17_pointcept_spunet_128_headfix"
 TRAIN_START_IDX=0
 TRAIN_MAX_SAMPLES=128
 EVAL_START_IDX=128
@@ -57,7 +57,7 @@ Main purpose:
 
 Examples:
   bash scripts/run_v17_pointcept_spunet.sh \
-    --experiment_name trainval_v17_pointcept_spunet_smoke \
+    --experiment_name trainval_v17_pointcept_spunet_smoke_headfix \
     --train_max_samples 8 \
     --eval_start_idx 128 \
     --eval_max_samples 8 \
