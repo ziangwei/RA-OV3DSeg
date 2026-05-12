@@ -28,13 +28,11 @@ fi
 echo "[setup_env] installing Pointcept base requirements..."
 pip install -r requirements-pointcept.txt
 
+# Step 3: register Pointcept on sys.path via a .pth file
 echo "[setup_env] registering Pointcept on sys.path..."
 SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-echo "[setup_env] site-packages: ${SITE_PACKAGES}"
 echo "${POINTCEPT_DIR}" > "${SITE_PACKAGES}/pointcept.pth"
-echo "[setup_env] wrote ${SITE_PACKAGES}/pointcept.pth -> ${POINTCEPT_DIR}"
-
-python -c "import pointcept; print('[setup_env] pointcept imported from:', pointcept.__file__)"
+python -c "import pointcept; print('[setup_env] pointcept loaded from:', pointcept.__file__)"
 
 echo "[setup_env] installing RA-OV3DSeg extras..."
 pip install -r requirements.txt
