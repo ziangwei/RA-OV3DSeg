@@ -1,0 +1,18 @@
+# Initial pins for Pointcept commit d74c646db6abec569d0f23e0c34e7ddfce142789.
+# Verify against third_party/Pointcept/requirements.txt after cloning.
+torch==2.1.0
+torchvision==0.16.0
+spconv-cu120==2.3.6
+numpy<2.0
+scipy
+addict
+einops
+ftfy
+regex
+plyfile
+SharedArray
+tensorboardx
+yapf
+termcolor
+timm
+torch-geometric

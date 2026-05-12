@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
             "against arbitrary text embeddings by cosine similarity."
         )
     )
-    parser.add_argument("--checkpoint", required=True, type=str, help="Path to train_3d_segmentor checkpoint .pt.")
+    parser.add_argument("--checkpoint", required=True, type=str, help="Path to an RA-OV3DSeg OV checkpoint .pt.")
     parser.add_argument("--sample_idx", default=None, type=int, help="Single sample index.")
     parser.add_argument("--start_idx", default=0, type=int, help="Batch start sample index.")
     parser.add_argument("--max_samples", default=1, type=int, help="Number of samples in batch mode.")
@@ -116,7 +116,7 @@ def build_model_from_checkpoint(torch_module, checkpoint: dict[str, Any], device
     classifier_weight = state_dict["classifier.weight"]
     num_output_classes = int(classifier_weight.shape[0])
     feature_dim = int(classifier_weight.shape[1])
-    backbone = ckpt_args.get("backbone", checkpoint.get("backbone", {}).get("backbone", "sparse_unet_spconv"))
+    backbone = ckpt_args.get("backbone", checkpoint.get("backbone", {}).get("backbone", "pointcept_spunet"))
 
     model = build_segmentor(
         backbone=backbone,
