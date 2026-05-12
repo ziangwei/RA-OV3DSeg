@@ -19,6 +19,10 @@ later stage scripts is a final parseable block with `status=success` and
 `gate_passed=yes`. Phase 0 itself is complete only after the environment
 provisions Pointcept at the pinned commit and the sanity check passes.
 
+Do not run the setup in the current Windows base Python 3.13 environment.
+Create or activate a clean Python 3.10 CUDA environment first, then run the
+setup script from Git Bash, WSL, or the target Linux training server.
+
 ## Stage History
 
 ### phase-0 (in progress)
