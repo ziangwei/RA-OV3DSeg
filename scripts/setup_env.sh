@@ -26,7 +26,9 @@ if [ -f "${POINTCEPT_DIR}/requirements.txt" ]; then
 fi
 
 echo "[setup_env] installing Pointcept base requirements..."
-pip install -r requirements-pointcept.txt
+echo "[setup_env] removing numpy/opencv variants that commonly leave ABI conflicts..."
+python -m pip uninstall -y numpy opencv-python opencv-contrib-python opencv-python-headless || true
+python -m pip install -r requirements-pointcept.txt
 
 # Step 3: register Pointcept on sys.path via a .pth file
 echo "[setup_env] registering Pointcept on sys.path..."
@@ -34,7 +36,23 @@ SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['pureli
 echo "${POINTCEPT_DIR}" > "${SITE_PACKAGES}/pointcept.pth"
 python -c "import pointcept; print('[setup_env] pointcept loaded from:', pointcept.__file__)"
 
+if [ "${INSTALL_POINTOPS:-0}" = "1" ]; then
+  if [ ! -f "${POINTCEPT_DIR}/libs/pointops/setup.py" ]; then
+    echo "[setup_env] ERROR: ${POINTCEPT_DIR}/libs/pointops/setup.py not found" >&2
+    exit 1
+  fi
+  echo "[setup_env] building Pointcept pointops extension..."
+  cd "${POINTCEPT_DIR}/libs/pointops"
+  python setup.py install
+  cd "${PROJECT_ROOT}"
+  python -c "import pointops; print('[setup_env] pointops loaded from:', pointops.__file__)"
+else
+  echo "[setup_env] pointops is not built by default."
+  echo "[setup_env] On a CUDA build/compute node, run:"
+  echo "[setup_env]   INSTALL_POINTOPS=1 bash scripts/setup_env.sh"
+fi
+
 echo "[setup_env] installing RA-OV3DSeg extras..."
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 echo "[setup_env] OK. Run scripts/sanity_check.sh to verify."

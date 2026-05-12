@@ -19,6 +19,17 @@ print("[sanity] RunConclusion import:", RunConclusion.__name__)
 PY
 
 python - <<'PY'
+try:
+    import pointops
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "pointops is missing. Build it on a CUDA build/compute node with: "
+        "INSTALL_POINTOPS=1 bash scripts/setup_env.sh"
+    ) from exc
+print("[sanity] pointops:", pointops.__file__)
+PY
+
+python - <<'PY'
 from pointcept.models.sparse_unet.spconv_unet_v1m1_base import SpUNetBase
 
 m = SpUNetBase(in_channels=4, num_classes=16).eval()
