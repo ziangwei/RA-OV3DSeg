@@ -28,48 +28,13 @@ fi
 echo "[setup_env] installing Pointcept base requirements..."
 pip install -r requirements-pointcept.txt
 
-if [ -f "${POINTCEPT_DIR}/setup.py" ] || [ -f "${POINTCEPT_DIR}/pyproject.toml" ]; then
-  echo "[setup_env] pip install -e third_party/Pointcept --no-deps ..."
-  pip install -e "${POINTCEPT_DIR}" --no-deps
-else
-  echo "[setup_env] Pointcept has no setup.py/pyproject.toml; registering via .pth ..."
-  POINTCEPT_DIR="${POINTCEPT_DIR}" python - <<'PY'
-from __future__ import annotations
+echo "[setup_env] registering Pointcept on sys.path..."
+SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+echo "[setup_env] site-packages: ${SITE_PACKAGES}"
+echo "${POINTCEPT_DIR}" > "${SITE_PACKAGES}/pointcept.pth"
+echo "[setup_env] wrote ${SITE_PACKAGES}/pointcept.pth -> ${POINTCEPT_DIR}"
 
-import os
-import site
-import sysconfig
-from pathlib import Path
-
-pointcept_dir = Path(os.environ["POINTCEPT_DIR"]).resolve()
-site_dirs: list[Path] = []
-try:
-    site_dirs.extend(Path(path) for path in site.getsitepackages())
-except AttributeError:
-    pass
-purelib = sysconfig.get_paths().get("purelib")
-if purelib:
-    site_dirs.append(Path(purelib))
-
-seen: set[Path] = set()
-for site_dir in site_dirs:
-    site_dir = site_dir.resolve()
-    if site_dir in seen:
-        continue
-    seen.add(site_dir)
-    if not site_dir.exists():
-        continue
-    pth_path = site_dir / "ra_ov3dseg_pointcept.pth"
-    try:
-        pth_path.write_text(f"{pointcept_dir}\n", encoding="utf-8")
-    except OSError:
-        continue
-    print(f"[setup_env] wrote {pth_path}")
-    break
-else:
-    raise RuntimeError("Could not write Pointcept .pth into the active Python environment.")
-PY
-fi
+python -c "import pointcept; print('[setup_env] pointcept imported from:', pointcept.__file__)"
 
 echo "[setup_env] installing RA-OV3DSeg extras..."
 pip install -r requirements.txt

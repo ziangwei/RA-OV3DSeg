@@ -25,8 +25,8 @@ setup script from Git Bash, WSL, or the target Linux training server.
 
 Pointcept commit `d74c646db6abec569d0f23e0c34e7ddfce142789` may not expose
 `setup.py` or `pyproject.toml`. In that case `scripts/setup_env.sh` registers
-`third_party/Pointcept` through a `.pth` file in the active Python environment
-instead of running `pip install -e`.
+`third_party/Pointcept` through `pointcept.pth` in the active Python
+environment instead of running `pip install -e`.
 
 ## Stage History
 
