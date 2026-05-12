@@ -23,6 +23,11 @@ Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
 setup script from Git Bash, WSL, or the target Linux training server.
 
+Pointcept commit `d74c646db6abec569d0f23e0c34e7ddfce142789` may not expose
+`setup.py` or `pyproject.toml`. In that case `scripts/setup_env.sh` registers
+`third_party/Pointcept` through a `.pth` file in the active Python environment
+instead of running `pip install -e`.
+
 ## Stage History
 
 ### phase-0 (in progress)
