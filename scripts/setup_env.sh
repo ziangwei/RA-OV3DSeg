@@ -26,8 +26,6 @@ if [ -f "${POINTCEPT_DIR}/requirements.txt" ]; then
 fi
 
 echo "[setup_env] installing Pointcept base requirements..."
-echo "[setup_env] removing numpy/opencv variants that commonly leave ABI conflicts..."
-python -m pip uninstall -y numpy opencv-python opencv-contrib-python opencv-python-headless || true
 python -m pip install -r requirements-pointcept.txt
 
 # Step 3: register Pointcept on sys.path via a .pth file

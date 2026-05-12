@@ -28,11 +28,10 @@ Pointcept commit `d74c646db6abec569d0f23e0c34e7ddfce142789` may not expose
 `third_party/Pointcept` through `pointcept.pth` in the active Python
 environment instead of running `pip install -e`.
 
-Server environment fixes observed during Phase 0:
-- Use `numpy==1.26.4`; NumPy 2.x breaks older compiled CV/PyTorch extension
-  stacks.
-- Use `opencv-python-headless==4.8.1.78` and remove GUI OpenCV wheels first.
-- Install PyG extension wheels from
+Server environment target observed during Phase 0:
+- `numpy==1.26.4`
+- `opencv-python-headless==4.8.1.78`
+- PyG extension wheels from
   `https://data.pyg.org/whl/torch-2.1.0+cu121.html`.
 - `pointops` must be compiled from `third_party/Pointcept/libs/pointops` on a
   CUDA build/compute node. `scripts/setup_env.sh` does this only when
