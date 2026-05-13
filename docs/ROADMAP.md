@@ -15,12 +15,10 @@ mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
 
 ## Next Experiment
 
-First Stage 1 experiment: Pointcept preprocessing plus a baseline launcher
-smoke run. The smoke run must prove that data loading, Pointcept launcher
-execution, log capture, mIoU parsing, and `RunConclusion` emission work before
-any full trainval baseline run. `SMOKE=1` creates tiny Pointcept train/val pkl
-files under `outputs/pointcept/smoke_data/` so evaluation does not traverse the
-full 6019-sample split.
+Next Stage 1 experiment: full Pointcept SpUNet baseline training after owner
+confirmation. Preprocessing and the tiny launcher smoke run have passed; the
+full run must use the same Pointcept config and processed data root, without
+editing Pointcept's config file.
 
 Server discovery commands:
 
@@ -47,7 +45,7 @@ training:
 - Pointcept SpUNet config: TBD on server
 - nuScenes raw root: `$PWD/data/nuscenes` on server
 - Pointcept processed root: `$PWD/data/nuscenes_pointcept_processed` on server
-- Smoke log: `outputs/logs/train_baseline_<timestamp>.log`
+- Smoke log: `outputs/logs/train_baseline_20260513_111528.log`
 
 Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
@@ -70,9 +68,8 @@ Server environment target observed during Phase 0:
 
 ### stage-baseline (in progress)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
-- Status: preprocessing/smoke preparation in progress.
-- Next check: smoke run `scripts/train_baseline.sh` and inspect
-  `RunConclusion` before authorizing full 50 epoch training.
+- Status: preprocessing and tiny smoke run passed on 2026-05-13.
+- Next check: owner confirmation before authorizing full 50 epoch training.
 
 ### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.

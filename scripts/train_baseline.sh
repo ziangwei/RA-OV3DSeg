@@ -163,14 +163,14 @@ checkpoint = sys.argv[6] or None
 text = log_path.read_text(encoding="utf-8", errors="replace")
 metric_values: list[float] = []
 for line in text.splitlines():
-    if not re.search(r"mIoU|miou|mean.?iou", line, flags=re.IGNORECASE):
+    match = re.search(r"(?:^|\s)mIoU\s+([-+]?(?:\d*\.\d+|\d+))", line)
+    if match is None:
         continue
-    for raw in re.findall(r"[-+]?(?:\d*\.\d+|\d+)", line):
-        value = float(raw)
-        if value > 1.0 and value <= 100.0:
-            value = value / 100.0
-        if 0.0 <= value <= 1.0:
-            metric_values.append(value)
+    value = float(match.group(1))
+    if value > 1.0 and value <= 100.0:
+        value = value / 100.0
+    if 0.0 <= value <= 1.0:
+        metric_values.append(value)
 
 best_miou = max(metric_values) if metric_values else 0.0
 if smoke:
