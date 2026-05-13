@@ -1,10 +1,6 @@
 # Pins for Pointcept commit d74c646db6abec569d0f23e0c34e7ddfce142789.
 # This file reflects the server environment fixes discovered during Phase 0.
 --find-links https://data.pyg.org/whl/torch-2.1.0+cu121.html
-setuptools<70
-wheel
-packaging
-ninja
 torch==2.1.0
 torchvision==0.16.0
 torchaudio==2.1.0

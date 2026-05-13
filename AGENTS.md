@@ -27,6 +27,10 @@ other action.
 - `third_party/Pointcept/` is gitignored, managed by `scripts/setup_env.sh`.
 - Do not modify any file under `third_party/Pointcept/`.
 - Customization wraps Pointcept from within `ra_ov3dseg/`.
+- Do not use wide Pointcept imports such as `from pointcept.models import *`.
+  Import the exact submodule needed, for example
+  `pointcept.models.sparse_unet.spconv_unet_v1m1_base`, so the SpUNet path
+  does not trigger optional Pointcept CUDA extensions such as pointops.
 
 ## RunConclusion
 - Every training, evaluation, and extraction script ends with a

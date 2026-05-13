@@ -33,9 +33,8 @@ Server environment target observed during Phase 0:
 - `opencv-python-headless==4.8.1.78`
 - PyG extension wheels from
   `https://data.pyg.org/whl/torch-2.1.0+cu121.html`.
-- `pointops` must be compiled from `third_party/Pointcept/libs/pointops` on a
-  CUDA build/compute node. `scripts/setup_env.sh` does this only when
-  `INSTALL_POINTOPS=1` is set.
+- `pointops` is intentionally not installed. Stage 1-5 use SpUNet through
+  spconv, and pointops is only needed for Pointcept PTv3-style paths.
 
 ## Stage History
 
