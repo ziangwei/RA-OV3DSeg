@@ -1,0 +1,32 @@
+# Pins for Pointcept commit d74c646db6abec569d0f23e0c34e7ddfce142789.
+# This file reflects the server environment fixes discovered during Phase 0.
+--find-links https://data.pyg.org/whl/torch-2.1.0+cu121.html
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+spconv-cu120==2.3.6
+numpy==1.26.4
+opencv-python-headless==4.8.1.78
+scipy
+addict
+einops
+ftfy
+regex
+plyfile
+SharedArray
+tensorboard
+tensorboardX
+yapf
+termcolor
+timm
+torch-geometric
+torch-scatter
+torch-cluster
+torch-sparse
+peft==0.13.2
+accelerate
+wandb
+pandas
+h5py
+pyyaml
+tqdm

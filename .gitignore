@@ -1,21 +1,35 @@
-data/
-outputs/
-tmp/
-*.npz
-*.pth
-*.pt
-*.ckpt
-train_summary.json
-batch_3d_eval_summary.json
-PROJECT_STATUS_FOR_REVIEW.md
-RA_OV3DSeg_ACTION_PLAN.md
-RA_OV3DSeg_V16_V18_PLAN.md
+# Python
 __pycache__/
-.DS_Store
 *.pyc
 *.pyo
 *.pyd
+.Python
+*.egg-info/
 .pytest_cache/
-.mypy_cache/
-.idea/
+.ipynb_checkpoints/
+.coverage
+
+# IDE
 .vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project artifacts
+outputs/
+checkpoints/
+*.pth
+*.pt
+
+# Pointcept lives inside the repo but is not part of our git history
+third_party/Pointcept/
+
+# Data
+data/
+*.npz
+*.npy
+*.ply
+*.pcd
