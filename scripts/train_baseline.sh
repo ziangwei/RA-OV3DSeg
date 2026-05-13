@@ -10,6 +10,9 @@ EXPERIMENT_NAME="train_baseline"
 STAGE="stage-baseline"
 SMOKE="${SMOKE:-0}"
 NUM_GPUS="${NUM_GPUS:-1}"
+POINTCEPT_SWEEPS="${POINTCEPT_SWEEPS:-1}"
+SMOKE_TRAIN_SAMPLES="${SMOKE_TRAIN_SAMPLES:-8}"
+SMOKE_VAL_SAMPLES="${SMOKE_VAL_SAMPLES:-4}"
 
 cd "${PROJECT_ROOT}"
 mkdir -p "${LOG_DIR}" "${POINTCEPT_OUT_DIR}" "${CHECKPOINT_DIR}"
@@ -48,20 +51,36 @@ options=(
   "enable_wandb=False"
 )
 
-if [ -n "${POINTCEPT_DATA_ROOT:-}" ]; then
+DATA_ROOT="${POINTCEPT_DATA_ROOT:-}"
+if [ "${SMOKE}" = "1" ]; then
+  if [ -z "${DATA_ROOT}" ]; then
+    echo "[ERROR] SMOKE=1 requires POINTCEPT_DATA_ROOT pointing at processed train/val pkl files" | tee -a "${LOG_FILE}"
+    exit 1
+  fi
+  SMOKE_DATA_ROOT="${POINTCEPT_SMOKE_DATA_ROOT:-${POINTCEPT_OUT_DIR}/smoke_data}"
+  python "${PROJECT_ROOT}/scripts/make_nuscenes_smoke_infos.py" \
+    --source_root "${DATA_ROOT}" \
+    --output_root "${SMOKE_DATA_ROOT}" \
+    --max_sweeps "${POINTCEPT_SWEEPS}" \
+    --train_samples "${SMOKE_TRAIN_SAMPLES}" \
+    --val_samples "${SMOKE_VAL_SAMPLES}" | tee -a "${LOG_FILE}"
+  DATA_ROOT="${SMOKE_DATA_ROOT}"
+fi
+
+if [ -n "${DATA_ROOT}" ]; then
   options+=(
-    "data_root=${POINTCEPT_DATA_ROOT}"
-    "data.train.data_root=${POINTCEPT_DATA_ROOT}"
-    "data.val.data_root=${POINTCEPT_DATA_ROOT}"
-    "data.test.data_root=${POINTCEPT_DATA_ROOT}"
+    "data_root=${DATA_ROOT}"
+    "data.train.data_root=${DATA_ROOT}"
+    "data.val.data_root=${DATA_ROOT}"
+    "data.test.data_root=${DATA_ROOT}"
   )
 fi
 
 if [ "${SMOKE}" = "1" ]; then
-  options+=("epoch=1" "eval_epoch=1")
+  options+=("epoch=1" "eval_epoch=1" "batch_size=1" "batch_size_val=1")
 fi
 
-if [ -n "${POINTCEPT_SWEEPS:-}" ]; then
+if [ -n "${POINTCEPT_SWEEPS}" ]; then
   options+=(
     "data.train.sweeps=${POINTCEPT_SWEEPS}"
     "data.val.sweeps=${POINTCEPT_SWEEPS}"
@@ -87,9 +106,10 @@ train_args=(
   echo "[INFO] config=${CONFIG_PATH}"
   echo "[INFO] save_path=${SAVE_PATH}"
   echo "[INFO] num_gpus=${NUM_GPUS}"
-  if [ -n "${POINTCEPT_DATA_ROOT:-}" ]; then
-    echo "[INFO] data_root=${POINTCEPT_DATA_ROOT}"
+  if [ -n "${DATA_ROOT}" ]; then
+    echo "[INFO] data_root=${DATA_ROOT}"
   fi
+  echo "[INFO] pointcept_sweeps=${POINTCEPT_SWEEPS}"
   echo "[INFO] options=${options[*]}"
   nvidia-smi || true
   df -h "${PROJECT_ROOT}" || true

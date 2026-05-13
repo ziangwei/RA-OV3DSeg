@@ -18,7 +18,9 @@ mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
 First Stage 1 experiment: Pointcept preprocessing plus a baseline launcher
 smoke run. The smoke run must prove that data loading, Pointcept launcher
 execution, log capture, mIoU parsing, and `RunConclusion` emission work before
-any full trainval baseline run.
+any full trainval baseline run. `SMOKE=1` creates tiny Pointcept train/val pkl
+files under `outputs/pointcept/smoke_data/` so evaluation does not traverse the
+full 6019-sample split.
 
 Server discovery commands:
 
