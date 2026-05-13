@@ -18,7 +18,10 @@ PY
 
 python - <<'PY'
 import inspect
+import sys
+import types
 
+sys.modules.setdefault("pointops", types.ModuleType("pointops"))
 from pointcept.models.sparse_unet.spconv_unet_v1m1_base import SpUNetBase
 
 m = SpUNetBase(in_channels=4, num_classes=16).eval()

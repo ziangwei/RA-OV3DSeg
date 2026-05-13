@@ -1,4 +1,6 @@
 # RA-OV3DSeg extras (assumes Pointcept env already set up)
+numpy==1.26.4
+opencv-python-headless==4.8.1.78
 nuscenes-devkit==1.1.11
 transformers==4.46.0
 open-clip-torch==2.24.0

@@ -31,6 +31,9 @@ other action.
   Import the exact submodule needed, for example
   `pointcept.models.sparse_unet.spconv_unet_v1m1_base`, so the SpUNet path
   does not trigger optional Pointcept CUDA extensions such as pointops.
+- If Pointcept package initialization imports optional pointops anyway, do not
+  install or compile pointops for this project. For import-only sanity checks,
+  inject a local `sys.modules["pointops"]` stub before importing SpUNet.
 
 ## RunConclusion
 - Every training, evaluation, and extraction script ends with a

@@ -37,4 +37,12 @@ echo "[setup_env] wrote ${SITE_PACKAGES}/pointcept.pth -> ${POINTCEPT_DIR}"
 echo "[setup_env] installing RA-OV3DSeg extras..."
 python -m pip install -r requirements.txt
 
+python - <<'PY'
+import numpy
+
+if not numpy.__version__.startswith("1.26."):
+    raise SystemExit(f"[setup_env] ERROR: expected numpy 1.26.x, got {numpy.__version__}")
+print("[setup_env] numpy:", numpy.__version__)
+PY
+
 echo "[setup_env] OK. Run scripts/sanity_check.sh to verify."
