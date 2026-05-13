@@ -28,19 +28,23 @@ ls third_party/Pointcept/configs/nuscenes
 grep -rn "data_root" third_party/Pointcept/configs/nuscenes/*spunet*.py
 ```
 
-Expected preprocessing command shape:
+Expected preprocessing command:
 
 ```bash
-python third_party/Pointcept/pointcept/datasets/preprocessing/nuscenes/preprocess_nuscenes_info.py \
-  --dataset_root <server_nuscenes_raw_root> \
-  --output_root <server_nuscenes_pointcept_processed_root>
+python scripts/preprocess_nuscenes_trainval_only.py \
+  --dataset_root "$PWD/data/nuscenes" \
+  --output_root "$PWD/data/nuscenes_pointcept_processed" \
+  --max_sweeps 1 \
+  --with_camera
+
+ln -sfn "$PWD/data/nuscenes" "$PWD/data/nuscenes_pointcept_processed/raw"
 ```
 
 Record the confirmed config path and processed data root here before full
 training:
 - Pointcept SpUNet config: TBD on server
-- nuScenes raw root: TBD on server
-- Pointcept processed root: TBD on server
+- nuScenes raw root: `$PWD/data/nuscenes` on server
+- Pointcept processed root: `$PWD/data/nuscenes_pointcept_processed` on server
 - Smoke log: `outputs/logs/train_baseline_<timestamp>.log`
 
 Do not run the setup in the current Windows base Python 3.13 environment.

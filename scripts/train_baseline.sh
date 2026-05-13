@@ -61,6 +61,14 @@ if [ "${SMOKE}" = "1" ]; then
   options+=("epoch=1" "eval_epoch=1")
 fi
 
+if [ -n "${POINTCEPT_SWEEPS:-}" ]; then
+  options+=(
+    "data.train.sweeps=${POINTCEPT_SWEEPS}"
+    "data.val.sweeps=${POINTCEPT_SWEEPS}"
+    "data.test.sweeps=${POINTCEPT_SWEEPS}"
+  )
+fi
+
 if [ -n "${POINTCEPT_OPTIONS:-}" ]; then
   # shellcheck disable=SC2206
   extra_options=(${POINTCEPT_OPTIONS})
