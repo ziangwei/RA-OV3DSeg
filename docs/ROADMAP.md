@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
 > **Current Stage**: stage-baseline
-> **Last Updated**: 2026-05-13
+> **Last Updated**: 2026-05-14
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -15,10 +15,10 @@ mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
 
 ## Next Experiment
 
-Next Stage 1 experiment: full Pointcept SpUNet baseline training after owner
-confirmation. Preprocessing and the tiny launcher smoke run have passed; the
-full run must use the same Pointcept config and processed data root, without
-editing Pointcept's config file.
+Next Stage 1 action: Stage 1 acceptance review. The Pointcept SpUNet baseline
+checkpoint passed fast full-val evaluation with mIoU 0.7432, above the 0.70
+gate. Routine runs use the fast validation path and skip Pointcept's slow
+`PreciseEvaluator`; precise evaluation is reserved for explicit final audits.
 
 Server discovery commands:
 
@@ -46,6 +46,8 @@ training:
 - nuScenes raw root: `$PWD/data/nuscenes` on server
 - Pointcept processed root: `$PWD/data/nuscenes_pointcept_processed` on server
 - Smoke log: `outputs/logs/train_baseline_20260513_111528.log`
+- Fast val log: `outputs/logs/eval_baseline_fast_20260514_004248.log`
+- Fast val result: mIoU 0.7432 / mAcc 0.8095 / allAcc 0.9321
 
 Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
@@ -68,8 +70,8 @@ Server environment target observed during Phase 0:
 
 ### stage-baseline (in progress)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
-- Status: preprocessing and tiny smoke run passed on 2026-05-13.
-- Next check: owner confirmation before authorizing full 50 epoch training.
+- Status: fast full-val gate passed on 2026-05-14 with mIoU 0.7432.
+- Next check: Stage 1 acceptance review and handoff decision.
 
 ### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.

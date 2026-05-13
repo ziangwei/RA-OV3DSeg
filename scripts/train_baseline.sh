@@ -13,6 +13,7 @@ NUM_GPUS="${NUM_GPUS:-1}"
 POINTCEPT_SWEEPS="${POINTCEPT_SWEEPS:-1}"
 SMOKE_TRAIN_SAMPLES="${SMOKE_TRAIN_SAMPLES:-8}"
 SMOKE_VAL_SAMPLES="${SMOKE_VAL_SAMPLES:-4}"
+DISABLE_PRECISE_EVAL="${DISABLE_PRECISE_EVAL:-1}"
 
 cd "${PROJECT_ROOT}"
 mkdir -p "${LOG_DIR}" "${POINTCEPT_OUT_DIR}" "${CHECKPOINT_DIR}"
@@ -110,6 +111,7 @@ train_args=(
     echo "[INFO] data_root=${DATA_ROOT}"
   fi
   echo "[INFO] pointcept_sweeps=${POINTCEPT_SWEEPS}"
+  echo "[INFO] disable_precise_eval=${DISABLE_PRECISE_EVAL}"
   echo "[INFO] options=${options[*]}"
   nvidia-smi || true
   df -h "${PROJECT_ROOT}" || true
@@ -120,6 +122,7 @@ PYTHONPATH="${PROJECT_ROOT}:${POINTCEPT_DIR}:${PYTHONPATH:-}" python - "${TRAIN_
 from __future__ import annotations
 
 import runpy
+import os
 import sys
 import types
 
@@ -129,6 +132,25 @@ sys.argv = [train_script] + sys.argv[2:]
 # SpUNet training does not need pointops, but Pointcept package initialization
 # imports optional hooks that reference it.
 sys.modules.setdefault("pointops", types.ModuleType("pointops"))
+
+if os.environ.get("DISABLE_PRECISE_EVAL", "1") == "1":
+    import pointcept.engines.defaults as defaults
+
+    default_config_parser = defaults.default_config_parser
+
+    def default_config_parser_without_precise_eval(file_path, options):
+        cfg = default_config_parser(file_path, options)
+        cfg.hooks = [
+            hook
+            for hook in cfg.hooks
+            if not (
+                isinstance(hook, dict)
+                and hook.get("type") == "PreciseEvaluator"
+            )
+        ]
+        return cfg
+
+    defaults.default_config_parser = default_config_parser_without_precise_eval
 
 runpy.run_path(train_script, run_name="__main__")
 PY
