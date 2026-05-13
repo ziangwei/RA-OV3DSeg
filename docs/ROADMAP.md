@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
 > **Current Stage**: phase-0
-> **Last Updated**: 2026-05-12
+> **Last Updated**: 2026-05-13
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -13,11 +13,10 @@ that occur during execution go in this file.
 
 ## Next Experiment
 
-Run `scripts/setup_env.sh` in a clean conda environment, then run
-`scripts/sanity_check.sh`. On success, the `RunConclusion` expectation for
-later stage scripts is a final parseable block with `status=success` and
-`gate_passed=yes`. Phase 0 itself is complete only after the environment
-provisions Pointcept at the pinned commit and the sanity check passes.
+Open the Stage 1 C1 check-in before starting full baseline training:
+confirm the Pointcept SpUNet config path, nuScenes trainval dataroot, target
+launcher command, logging directory, and expected runtime. Stage 1 begins only
+after this check-in.
 
 Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
@@ -38,10 +37,12 @@ Server environment target observed during Phase 0:
 
 ## Stage History
 
-### phase-0 (in progress)
+### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.
-- Status: in progress.
-- Retrospective: filled if a stop condition fires.
+- Status: complete. Server setup and sanity check passed on 2026-05-13.
+- Retrospective: no stop condition fired. Pointcept is registered through
+  `pointcept.pth`; `pointops` is intentionally skipped because this project
+  uses SpUNet through spconv, not PTv3 paths.
 
 ## Pivots and Adjustments
 
