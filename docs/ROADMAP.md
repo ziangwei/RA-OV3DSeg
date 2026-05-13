@@ -1,6 +1,6 @@
 # RA-OV3DSeg Roadmap
 
-> **Current Stage**: phase-0
+> **Current Stage**: stage-baseline
 > **Last Updated**: 2026-05-13
 
 This is the live operational plan. The static execution plan is in
@@ -9,14 +9,39 @@ that occur during execution go in this file.
 
 ## Current Stage
 
-**phase-0**: foundation reset. See `EXECUTION_PLAN.md` Section 3.
+**stage-baseline**: reproduce Pointcept SpUNet nuScenes-lidarseg validation
+mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
+`EXECUTION_PLAN.md` Section 4.
 
 ## Next Experiment
 
-Open the Stage 1 C1 check-in before starting full baseline training:
-confirm the Pointcept SpUNet config path, nuScenes trainval dataroot, target
-launcher command, logging directory, and expected runtime. Stage 1 begins only
-after this check-in.
+First Stage 1 experiment: Pointcept preprocessing plus a baseline launcher
+smoke run. The smoke run must prove that data loading, Pointcept launcher
+execution, log capture, mIoU parsing, and `RunConclusion` emission work before
+any full trainval baseline run.
+
+Server discovery commands:
+
+```bash
+find third_party/Pointcept -name "preprocess_*.py" -path "*nuscenes*"
+ls third_party/Pointcept/configs/nuscenes
+grep -rn "data_root" third_party/Pointcept/configs/nuscenes/*spunet*.py
+```
+
+Expected preprocessing command shape:
+
+```bash
+python third_party/Pointcept/pointcept/datasets/preprocessing/nuscenes/preprocess_nuscenes_info.py \
+  --dataset_root <server_nuscenes_raw_root> \
+  --output_root <server_nuscenes_pointcept_processed_root>
+```
+
+Record the confirmed config path and processed data root here before full
+training:
+- Pointcept SpUNet config: TBD on server
+- nuScenes raw root: TBD on server
+- Pointcept processed root: TBD on server
+- Smoke log: `outputs/logs/train_baseline_<timestamp>.log`
 
 Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
@@ -36,6 +61,12 @@ Server environment target observed during Phase 0:
   spconv, and pointops is only needed for Pointcept PTv3-style paths.
 
 ## Stage History
+
+### stage-baseline (in progress)
+- Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
+- Status: preprocessing/smoke preparation in progress.
+- Next check: smoke run `scripts/train_baseline.sh` and inspect
+  `RunConclusion` before authorizing full 50 epoch training.
 
 ### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.
