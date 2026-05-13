@@ -3,12 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
-CLIP_PATCH_BASELINE = "clip_patch_baseline"
 CLIPSEG_DENSE = "clipseg_dense"
 GROUPVIT_DENSE = "groupvit_dense"
 SUPPORTED_TEACHERS = (
-    CLIP_PATCH_BASELINE,
     CLIPSEG_DENSE,
     GROUPVIT_DENSE,
 )
@@ -24,18 +21,6 @@ class TeacherSpec:
 
 
 def describe_teacher(teacher_backend: str) -> TeacherSpec:
-    if teacher_backend == CLIP_PATCH_BASELINE:
-        return TeacherSpec(
-            name=teacher_backend,
-            role="mvp_baseline",
-            feature_granularity="coarse_patch",
-            is_baseline=True,
-            description=(
-                "CLIP/SigLIP patch-token baseline. It verifies the open-vocabulary "
-                "2D-to-3D pipeline, but it is too coarse to be the final dense teacher."
-            ),
-        )
-
     if teacher_backend == CLIPSEG_DENSE:
         return TeacherSpec(
             name=teacher_backend,
@@ -71,33 +56,18 @@ def build_image_teacher(
     cache_dir: str | Path | None = None,
     local_files_only: bool = False,
 ):
-    """Build an image teacher for 2D feature extraction.
-
-    `clip_patch_baseline` is used by the MVP feature-assignment path. Dense
-    teachers write class-logit maps and are handled by
-    `scripts/extract_dense_teacher_logits.py`.
-    """
-
-    if teacher_backend == CLIP_PATCH_BASELINE:
-        from ra_ov3dseg.models.image_encoder import ImageEncoder
-
-        return ImageEncoder(
-            model_name=model_name,
-            device=device,
-            cache_dir=cache_dir,
-            local_files_only=local_files_only,
-        )
+    """Build an image teacher for dense-logit extraction."""
 
     if teacher_backend == CLIPSEG_DENSE:
         raise NotImplementedError(
             "clipseg_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
-            "instead of scripts/extract_2d_features.py."
+            "or the Stage 3 SAM2+SigLIP teacher path."
         )
 
     if teacher_backend == GROUPVIT_DENSE:
         raise NotImplementedError(
             "groupvit_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
-            "instead of scripts/extract_2d_features.py."
+            "or the Stage 3 SAM2+SigLIP teacher path."
         )
 
     raise ValueError(f"Unknown teacher_backend={teacher_backend}. Supported: {SUPPORTED_TEACHERS}")

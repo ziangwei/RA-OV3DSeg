@@ -5,13 +5,23 @@ from typing import Any
 
 import numpy as np
 
-from ra_ov3dseg.models.image_encoder import _resolve_device
-
 
 def prettify_label_name(label_name: str) -> str:
     """将 nuScenes 风格标签名转换成更适合文本提示的自然语言形式。"""
 
     return label_name.replace(".", " ").replace("_", " ").strip()
+
+
+def resolve_device(torch_module, requested: str):
+    if requested == "cpu":
+        return torch_module.device("cpu")
+    if requested == "cuda":
+        if not torch_module.cuda.is_available():
+            raise RuntimeError("--device cuda was requested but CUDA is not available.")
+        return torch_module.device("cuda")
+    if requested != "auto":
+        raise ValueError("device must be one of: auto, cpu, cuda")
+    return torch_module.device("cuda" if torch_module.cuda.is_available() else "cpu")
 
 
 class TextEncoder:
@@ -38,7 +48,7 @@ class TextEncoder:
             ) from exc
 
         self.torch = torch
-        self.device = _resolve_device(torch, device)
+        self.device = resolve_device(torch, device)
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             cache_dir=self.cache_dir,

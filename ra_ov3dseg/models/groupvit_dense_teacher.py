@@ -6,8 +6,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ra_ov3dseg.models.image_encoder import _resolve_device
-from ra_ov3dseg.models.text_encoder import prettify_label_name
+from ra_ov3dseg.models.text_encoder import prettify_label_name, resolve_device
 
 
 class GroupViTDenseTeacher:
@@ -45,7 +44,7 @@ class GroupViTDenseTeacher:
 
         self.torch = torch
         self.functional = F
-        self.device = _resolve_device(torch, device)
+        self.device = resolve_device(torch, device)
         self.processor = AutoProcessor.from_pretrained(
             model_name,
             cache_dir=self.cache_dir,
