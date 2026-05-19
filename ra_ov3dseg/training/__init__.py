@@ -1,4 +1,4 @@
-"""Training helpers for dry-run and future model training."""
+"""Training helpers retained for reliability-aware distillation."""
 
 from .labels import (
     NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
@@ -9,7 +9,6 @@ from .labels import (
     map_official_16_for_ce,
     map_raw_lidarseg_to_official_16,
 )
-from .augmentations import PointAugmentationConfig, augment_point_xyz
 
 
 _LAZY_EXPORTS = {
@@ -18,11 +17,6 @@ _LAZY_EXPORTS = {
     "dice_loss": ("ra_ov3dseg.training.losses", "dice_loss"),
     "lovasz_softmax_loss": ("ra_ov3dseg.training.losses", "lovasz_softmax_loss"),
     "supervised_ce_loss": ("ra_ov3dseg.training.losses", "supervised_ce_loss"),
-    "PrecomputedPointFeatureDataset": ("ra_ov3dseg.training.precomputed_dataset", "PrecomputedPointFeatureDataset"),
-    "collate_point_feature_samples": ("ra_ov3dseg.training.precomputed_dataset", "collate_point_feature_samples"),
-    "find_missing_dense_point_files": ("ra_ov3dseg.training.precomputed_dataset", "find_missing_dense_point_files"),
-    "find_missing_precomputed_files": ("ra_ov3dseg.training.precomputed_dataset", "find_missing_precomputed_files"),
-    "RawLidarsegDataset": ("ra_ov3dseg.training.raw_lidarseg_dataset", "RawLidarsegDataset"),
 }
 
 
@@ -44,16 +38,9 @@ __all__ = [
     "map_labels_for_base_ce",
     "map_official_16_for_ce",
     "map_raw_lidarseg_to_official_16",
-    "PointAugmentationConfig",
-    "augment_point_xyz",
     "cosine_distillation_loss",
     "dense_logit_distillation_loss",
     "dice_loss",
     "lovasz_softmax_loss",
     "supervised_ce_loss",
-    "PrecomputedPointFeatureDataset",
-    "RawLidarsegDataset",
-    "collate_point_feature_samples",
-    "find_missing_dense_point_files",
-    "find_missing_precomputed_files",
 ]

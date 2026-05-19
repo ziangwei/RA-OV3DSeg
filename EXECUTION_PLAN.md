@@ -1130,27 +1130,27 @@ Codex ticks each item with `[x]` only when truly complete. Ziang inspects
 this list at each check-in.
 
 ### Phase 0
-- [ ] `prototype-v1-archive` tag created and pushed
-- [ ] `migration/foundation-reset` branch contains cleanup commits
-- [ ] `.gitignore` updated
-- [ ] `scripts/setup_env.sh` written and runnable
-- [ ] `requirements-pointcept.txt` and `requirements.txt` written
-- [ ] `scripts/sanity_check.sh` written and passing
-- [ ] `ra_ov3dseg/utils/run_conclusion.py` written and imported successfully
-- [ ] `docs/ROADMAP.md`, `docs/EXPERIMENT_RECAP.md`, `docs/INTERVIEW_PREP.md` created from templates
-- [ ] `AGENTS.md` created
-- [ ] Placeholder `README.md` written
-- [ ] `phase0-complete` tag
+- [x] `prototype-v1-archive` tag created and pushed
+- [x] `migration/foundation-reset` branch contains cleanup commits
+- [x] `.gitignore` updated
+- [x] `scripts/setup_env.sh` written and runnable
+- [x] `requirements-pointcept.txt` and `requirements.txt` written
+- [x] `scripts/sanity_check.sh` written and passing
+- [x] `ra_ov3dseg/utils/run_conclusion.py` written and imported successfully
+- [x] `docs/ROADMAP.md`, `docs/EXPERIMENT_RECAP.md`, `docs/INTERVIEW_PREP.md` created from templates
+- [x] `AGENTS.md` created
+- [x] Placeholder `README.md` written
+- [x] `phase0-complete` tag
 
 ### Stage 1 — Closed-Set Baseline
-- [ ] Branch `stage-1-baseline` created
-- [ ] `scripts/train_baseline.sh` written, calls Pointcept's own launcher
-- [ ] Full training run completed
+- [x] Branch `stage-1-baseline` created
+- [x] `scripts/train_baseline.sh` written, calls Pointcept's own launcher
+- [x] Full training run completed
 - [ ] Independent eval via `scripts/eval_lidarseg.py` matches within ±1 mIoU
-- [ ] `outputs/checkpoints/closed_set_baseline.pt` produced
-- [ ] Gate: val mIoU ≥ 0.70
-- [ ] EXPERIMENT_RECAP updated
-- [ ] INTERVIEW_PREP Decision Log + Headline Results updated
+- [x] `outputs/checkpoints/closed_set_baseline.pt` produced
+- [x] Gate: val mIoU ≥ 0.70
+- [x] EXPERIMENT_RECAP updated
+- [x] INTERVIEW_PREP Decision Log + Headline Results updated
 - [ ] `stage1-baseline-complete` tag
 
 ### Stage 2 — OV Head Replacement

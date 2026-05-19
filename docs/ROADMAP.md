@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
-> **Current Stage**: phase-0
-> **Last Updated**: 2026-05-13
+> **Current Stage**: stage-baseline
+> **Last Updated**: 2026-05-20
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -9,14 +9,46 @@ that occur during execution go in this file.
 
 ## Current Stage
 
-**phase-0**: foundation reset. See `EXECUTION_PLAN.md` Section 3.
+**stage-baseline**: reproduce Pointcept SpUNet nuScenes-lidarseg validation
+mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
+`EXECUTION_PLAN.md` Section 4.
 
 ## Next Experiment
 
-Open the Stage 1 C1 check-in before starting full baseline training:
-confirm the Pointcept SpUNet config path, nuScenes trainval dataroot, target
-launcher command, logging directory, and expected runtime. Stage 1 begins only
-after this check-in.
+Next action: merge the accepted Stage 1 baseline into `main`, tag
+`stage1-baseline-complete`, then branch Stage 2 for the text-aligned OV head.
+The Stage 2 target is to replace the closed-set classifier with a SigLIP
+prototype cosine head while keeping closed-set mIoU within 0.08 of the Stage 1
+baseline.
+
+Server discovery commands:
+
+```bash
+find third_party/Pointcept -name "preprocess_*.py" -path "*nuscenes*"
+ls third_party/Pointcept/configs/nuscenes
+grep -rn "data_root" third_party/Pointcept/configs/nuscenes/*spunet*.py
+```
+
+Expected preprocessing command:
+
+```bash
+python scripts/preprocess_nuscenes_trainval_only.py \
+  --dataset_root "$PWD/data/nuscenes" \
+  --output_root "$PWD/data/nuscenes_pointcept_processed" \
+  --max_sweeps 1 \
+  --with_camera
+
+ln -sfn "$PWD/data/nuscenes" "$PWD/data/nuscenes_pointcept_processed/raw"
+```
+
+Record the confirmed config path and processed data root here before full
+training:
+- Pointcept SpUNet config: TBD on server
+- nuScenes raw root: `$PWD/data/nuscenes` on server
+- Pointcept processed root: `$PWD/data/nuscenes_pointcept_processed` on server
+- Smoke log: `outputs/logs/train_baseline_20260513_111528.log`
+- Fast val log: `outputs/logs/eval_baseline_fast_20260514_004248.log`
+- Fast val result: mIoU 0.7432 / mAcc 0.8095 / allAcc 0.9321
 
 Do not run the setup in the current Windows base Python 3.13 environment.
 Create or activate a clean Python 3.10 CUDA environment first, then run the
@@ -36,6 +68,15 @@ Server environment target observed during Phase 0:
   spconv, and pointops is only needed for Pointcept PTv3-style paths.
 
 ## Stage History
+
+### stage-baseline (in progress)
+- Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
+- Status: accepted. Fast full-val gate passed on 2026-05-14 with mIoU 0.7432.
+- C2 check-in: baseline is credible for Stage 2. It uses Pointcept SpUNet's
+  own recipe and evaluator; routine runs skip the slow `PreciseEvaluator`.
+- Retrospective: no stop condition fired. The final checkpoint is preserved as
+  `outputs/checkpoints/closed_set_baseline.pt` on the server. The Stage 2
+  threshold is 0.6632 mIoU, computed as 0.7432 - 0.08.
 
 ### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.

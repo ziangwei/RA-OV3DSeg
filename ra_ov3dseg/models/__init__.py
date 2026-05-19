@@ -12,7 +12,6 @@ __all__ = [
     "SUPPORTED_BACKBONES",
     "build_segmentor",
     "describe_backbone",
-    "CLIP_PATCH_BASELINE",
     "CLIPSEG_DENSE",
     "GROUPVIT_DENSE",
     "SUPPORTED_TEACHERS",
@@ -28,7 +27,6 @@ _SEGMENTOR_EXPORTS = {
     "describe_backbone",
 }
 _TEACHER_EXPORTS = {
-    "CLIP_PATCH_BASELINE",
     "CLIPSEG_DENSE",
     "GROUPVIT_DENSE",
     "SUPPORTED_TEACHERS",

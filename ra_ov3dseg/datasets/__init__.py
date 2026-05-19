@@ -1,6 +1,6 @@
-"""Dataset helpers for RA-OV3DSeg."""
+"""Dataset helpers for RA-OV3DSeg.
 
-from .nuscenes_dataset import CAMERA_CHANNELS, NuScenesDataset
-from .nuscenes_mini_dataset import NuScenesMiniDataset
+Stage 1 uses Pointcept's NuScenes dataset and preprocessing pipeline directly.
+"""
 
-__all__ = ["CAMERA_CHANNELS", "NuScenesDataset", "NuScenesMiniDataset"]
+__all__: list[str] = []
