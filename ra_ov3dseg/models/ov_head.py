@@ -161,6 +161,12 @@ class PointceptOVHeadSegmentor(nn.Module):
             for param in self.backbone.parameters():
                 param.requires_grad = False
 
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze_backbone:
+            self.backbone.eval()
+        return self
+
     def forward(self, input_dict: dict[str, Any]) -> dict[str, torch.Tensor]:
         if self.freeze_backbone:
             with torch.no_grad():

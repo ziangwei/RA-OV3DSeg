@@ -71,9 +71,10 @@ Server environment target observed during Phase 0:
 ### stage-ov-head (in progress)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while
   preserving most closed-set performance.
-- Status: OV head module and text prototype cache script implemented locally.
-- Next check: cache 16 class text prototypes on the server, then write a smoke
-  fine-tune launcher before any full fine-tune.
+- Status: OV head module, text prototype cache script, and smoke fine-tune
+  launcher implemented locally.
+- Next check: cache 16 class text prototypes on the server, then run
+  `SMOKE=1 bash scripts/train_ov_head.sh` before any full fine-tune.
 
 ### stage-baseline (complete)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
