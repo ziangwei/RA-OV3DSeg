@@ -187,12 +187,11 @@ class PointceptOVHeadSegmentor(nn.Module):
             point_features = self._run_backbone(input_dict)
 
         seg_logits = self.ov_head(point_features)
-        return_dict: dict[str, torch.Tensor] = {
-            "seg_logits": seg_logits,
-            "point_embeddings": self.ov_head.point_embeddings(point_features),
-        }
+        return_dict: dict[str, torch.Tensor] = {"seg_logits": seg_logits}
         if "segment" in input_dict:
             loss = self.criteria(seg_logits, input_dict["segment"])
+            if self.training:
+                return {"loss": loss}
             return_dict["loss"] = loss
         return return_dict
 
