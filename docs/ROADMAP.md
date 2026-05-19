@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
 > **Current Stage**: stage-baseline
-> **Last Updated**: 2026-05-14
+> **Last Updated**: 2026-05-20
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -15,10 +15,11 @@ mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
 
 ## Next Experiment
 
-Next Stage 1 action: Stage 1 acceptance review. The Pointcept SpUNet baseline
-checkpoint passed fast full-val evaluation with mIoU 0.7432, above the 0.70
-gate. Routine runs use the fast validation path and skip Pointcept's slow
-`PreciseEvaluator`; precise evaluation is reserved for explicit final audits.
+Next action: merge the accepted Stage 1 baseline into `main`, tag
+`stage1-baseline-complete`, then branch Stage 2 for the text-aligned OV head.
+The Stage 2 target is to replace the closed-set classifier with a SigLIP
+prototype cosine head while keeping closed-set mIoU within 0.08 of the Stage 1
+baseline.
 
 Server discovery commands:
 
@@ -70,8 +71,12 @@ Server environment target observed during Phase 0:
 
 ### stage-baseline (in progress)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
-- Status: fast full-val gate passed on 2026-05-14 with mIoU 0.7432.
-- Next check: Stage 1 acceptance review and handoff decision.
+- Status: accepted. Fast full-val gate passed on 2026-05-14 with mIoU 0.7432.
+- C2 check-in: baseline is credible for Stage 2. It uses Pointcept SpUNet's
+  own recipe and evaluator; routine runs skip the slow `PreciseEvaluator`.
+- Retrospective: no stop condition fired. The final checkpoint is preserved as
+  `outputs/checkpoints/closed_set_baseline.pt` on the server. The Stage 2
+  threshold is 0.6632 mIoU, computed as 0.7432 - 0.08.
 
 ### phase-0 (complete)
 - Goal: clean repo, install Pointcept, pass sanity check.

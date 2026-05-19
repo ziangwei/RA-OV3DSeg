@@ -1143,14 +1143,14 @@ this list at each check-in.
 - [x] `phase0-complete` tag
 
 ### Stage 1 — Closed-Set Baseline
-- [ ] Branch `stage-1-baseline` created
-- [ ] `scripts/train_baseline.sh` written, calls Pointcept's own launcher
-- [ ] Full training run completed
+- [x] Branch `stage-1-baseline` created
+- [x] `scripts/train_baseline.sh` written, calls Pointcept's own launcher
+- [x] Full training run completed
 - [ ] Independent eval via `scripts/eval_lidarseg.py` matches within ±1 mIoU
-- [ ] `outputs/checkpoints/closed_set_baseline.pt` produced
-- [ ] Gate: val mIoU ≥ 0.70
-- [ ] EXPERIMENT_RECAP updated
-- [ ] INTERVIEW_PREP Decision Log + Headline Results updated
+- [x] `outputs/checkpoints/closed_set_baseline.pt` produced
+- [x] Gate: val mIoU ≥ 0.70
+- [x] EXPERIMENT_RECAP updated
+- [x] INTERVIEW_PREP Decision Log + Headline Results updated
 - [ ] `stage1-baseline-complete` tag
 
 ### Stage 2 — OV Head Replacement

@@ -8,6 +8,7 @@ below via `RunConclusion.append_to_recap()`.
 
 | Date | Stage | Experiment | Status | Primary Metric | Notes |
 |---|---|---|---|---|---|
+| 2026-05-14 | stage-baseline | eval_baseline_fast | success | val_miou=0.7432 | fast validation via Pointcept SemSegEvaluator; skips PreciseEvaluator |
 
 ## Carryover Knowledge From Prototype Phase
 
