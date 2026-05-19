@@ -19,6 +19,7 @@ FREEZE_BACKBONE="${FREEZE_BACKBONE:-1}"
 OV_HEAD_BACKBONE_OUT_CHANNELS="${OV_HEAD_BACKBONE_OUT_CHANNELS:-96}"
 OV_HEAD_TEMPERATURE="${OV_HEAD_TEMPERATURE:-0.07}"
 OV_HEAD_TRAINABLE_TEMPERATURE="${OV_HEAD_TRAINABLE_TEMPERATURE:-1}"
+FORCE_FP32_BACKBONE="${FORCE_FP32_BACKBONE:-1}"
 
 cd "${PROJECT_ROOT}"
 mkdir -p "${LOG_DIR}" "${POINTCEPT_OUT_DIR}" "${CHECKPOINT_DIR}"
@@ -82,6 +83,7 @@ fi
 options=(
   "save_path=${SAVE_PATH}"
   "enable_wandb=False"
+  "enable_amp=False"
   "data_root=${DATA_ROOT}"
   "data.train.data_root=${DATA_ROOT}"
   "data.val.data_root=${DATA_ROOT}"
@@ -116,6 +118,7 @@ train_args=(
   echo "[INFO] text_prototypes=${TEXT_PROTOTYPES}"
   echo "[INFO] baseline_checkpoint=${BASELINE_CHECKPOINT}"
   echo "[INFO] freeze_backbone=${FREEZE_BACKBONE}"
+  echo "[INFO] force_fp32_backbone=${FORCE_FP32_BACKBONE}"
   echo "[INFO] gate_miou=${OV_HEAD_GATE_MIOU}"
   echo "[INFO] disable_precise_eval=${DISABLE_PRECISE_EVAL}"
   echo "[INFO] options=${options[*]}"
@@ -130,6 +133,7 @@ FREEZE_BACKBONE="${FREEZE_BACKBONE}" \
 OV_HEAD_BACKBONE_OUT_CHANNELS="${OV_HEAD_BACKBONE_OUT_CHANNELS}" \
 OV_HEAD_TEMPERATURE="${OV_HEAD_TEMPERATURE}" \
 OV_HEAD_TRAINABLE_TEMPERATURE="${OV_HEAD_TRAINABLE_TEMPERATURE}" \
+FORCE_FP32_BACKBONE="${FORCE_FP32_BACKBONE}" \
 python - \
   "${TRAIN_SCRIPT}" \
   "${TEXT_PROTOTYPES}" \
@@ -187,6 +191,7 @@ def default_config_parser_with_ov_head(file_path, options):
         trainable_temperature=os.environ.get("OV_HEAD_TRAINABLE_TEMPERATURE", "1") == "1",
         use_projection=True,
         freeze_backbone=os.environ.get("FREEZE_BACKBONE", "1") == "1",
+        force_fp32_backbone=os.environ.get("FORCE_FP32_BACKBONE", "1") == "1",
     )
     return cfg
 

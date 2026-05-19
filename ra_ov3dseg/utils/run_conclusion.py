@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import json
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -69,7 +70,14 @@ class RunConclusion:
         return f"{h}h {m:02d}m {s:02d}s"
 
     def append_to_recap(self, recap_path: Path) -> None:
-        """Append one row to docs/EXPERIMENT_RECAP.md's ledger table."""
+        """Append one row to the experiment ledger.
+
+        Runtime scripts default to an untracked local recap to avoid dirtying
+        `docs/EXPERIMENT_RECAP.md` on shared training servers. Set
+        `RA_OV3DSEG_RECAP_MODE=tracked` for a deliberate tracked-doc append,
+        `RA_OV3DSEG_RECAP_PATH=/path/to/file.md` for a custom ledger, or
+        `RA_OV3DSEG_RECAP_MODE=off` to skip appending.
+        """
 
         row = " | ".join(
             [
@@ -81,9 +89,33 @@ class RunConclusion:
                 (self.notes or "-").replace("\n", " ")[:80],
             ]
         )
-        recap_path = Path(recap_path)
+        recap_path = self._resolve_recap_path(Path(recap_path))
+        if recap_path is None:
+            return
+        recap_path.parent.mkdir(parents=True, exist_ok=True)
+        if not recap_path.exists():
+            recap_path.write_text(
+                "| Date | Stage | Experiment | Status | Primary Metric | Notes |\n"
+                "|---|---|---|---|---|---|\n",
+                encoding="utf-8",
+            )
         with recap_path.open("a", encoding="utf-8") as f:
             f.write(f"| {row} |\n")
+
+    @staticmethod
+    def _resolve_recap_path(default_path: Path) -> Path | None:
+        override = os.environ.get("RA_OV3DSEG_RECAP_PATH")
+        if override:
+            return Path(override)
+
+        mode = os.environ.get("RA_OV3DSEG_RECAP_MODE", "local").strip().lower()
+        if mode in {"off", "none", "skip"}:
+            return None
+        if mode == "tracked":
+            return default_path
+        if mode != "local":
+            raise ValueError("RA_OV3DSEG_RECAP_MODE must be one of: local, tracked, off")
+        return Path("outputs/run_conclusions/EXPERIMENT_RECAP.local.md")
 
     def to_json(self) -> str:
         return json.dumps(dataclasses.asdict(self), indent=2)

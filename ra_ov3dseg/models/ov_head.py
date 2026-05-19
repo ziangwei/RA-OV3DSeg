@@ -122,6 +122,7 @@ class PointceptOVHeadSegmentor(nn.Module):
         trainable_temperature: bool = True,
         use_projection: bool = True,
         freeze_backbone: bool = True,
+        force_fp32_backbone: bool = True,
         backbone_weight_path: str | None = None,
     ) -> None:
         super().__init__()
@@ -133,6 +134,7 @@ class PointceptOVHeadSegmentor(nn.Module):
         self.backbone = build_model(backbone)
         self.criteria = build_criteria(criteria)
         self.freeze_backbone = bool(freeze_backbone)
+        self.force_fp32_backbone = bool(force_fp32_backbone)
 
         prototype_data = load_text_prototypes(text_prototypes_path)
         self.class_names = prototype_data["class_names"]
@@ -167,12 +169,22 @@ class PointceptOVHeadSegmentor(nn.Module):
             self.backbone.eval()
         return self
 
+    def _run_backbone(self, input_dict: dict[str, Any]) -> torch.Tensor:
+        backbone_input = dict(input_dict)
+        if self.force_fp32_backbone and "feat" in backbone_input:
+            backbone_input["feat"] = backbone_input["feat"].float()
+
+        if self.force_fp32_backbone and torch.cuda.is_available():
+            with torch.cuda.amp.autocast(enabled=False):
+                return self.backbone(backbone_input).float()
+        return self.backbone(backbone_input).float()
+
     def forward(self, input_dict: dict[str, Any]) -> dict[str, torch.Tensor]:
         if self.freeze_backbone:
             with torch.no_grad():
-                point_features = self.backbone(input_dict)
+                point_features = self._run_backbone(input_dict)
         else:
-            point_features = self.backbone(input_dict)
+            point_features = self._run_backbone(input_dict)
 
         seg_logits = self.ov_head(point_features)
         return_dict: dict[str, torch.Tensor] = {

@@ -72,7 +72,8 @@ Server environment target observed during Phase 0:
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while
   preserving most closed-set performance.
 - Status: OV head module, text prototype cache script, and smoke fine-tune
-  launcher implemented locally.
+  launcher implemented locally. Stage 2 wrapper forces FP32 backbone execution
+  and disables AMP to avoid spconv kernel tuning failures on H100 smoke runs.
 - Next check: cache 16 class text prototypes on the server, then run
   `SMOKE=1 bash scripts/train_ov_head.sh` before any full fine-tune.
 

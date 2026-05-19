@@ -23,6 +23,8 @@ outputs/
 checkpoints/
 *.pth
 *.pt
+# Runtime RunConclusion ledgers live under outputs/run_conclusions/.
+# Accepted/checkpoint results are promoted manually to docs/EXPERIMENT_RECAP.md.
 
 # Pointcept lives inside the repo but is not part of our git history
 third_party/Pointcept/
