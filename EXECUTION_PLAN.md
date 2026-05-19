@@ -1151,7 +1151,7 @@ this list at each check-in.
 - [x] Gate: val mIoU ≥ 0.70
 - [x] EXPERIMENT_RECAP updated
 - [x] INTERVIEW_PREP Decision Log + Headline Results updated
-- [ ] `stage1-baseline-complete` tag
+- [x] `stage1-baseline-complete` tag
 
 ### Stage 2 — OV Head Replacement
 - [x] Branch `stage-2-ov-head` created
