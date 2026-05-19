@@ -17,6 +17,10 @@ __all__ = [
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",
+    "PointceptOVHeadSegmentor",
+    "TextPrototypeHead",
+    "load_pointcept_backbone_weights",
+    "load_text_prototypes",
 ]
 
 _SEGMENTOR_EXPORTS = {
@@ -33,6 +37,12 @@ _TEACHER_EXPORTS = {
     "build_image_teacher",
     "describe_teacher",
 }
+_OV_HEAD_EXPORTS = {
+    "PointceptOVHeadSegmentor",
+    "TextPrototypeHead",
+    "load_pointcept_backbone_weights",
+    "load_text_prototypes",
+}
 
 
 def __getattr__(name: str):
@@ -42,4 +52,7 @@ def __getattr__(name: str):
     if name in _TEACHER_EXPORTS:
         teacher_registry = import_module(f"{__name__}.teacher_registry")
         return getattr(teacher_registry, name)
+    if name in _OV_HEAD_EXPORTS:
+        ov_head = import_module(f"{__name__}.ov_head")
+        return getattr(ov_head, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

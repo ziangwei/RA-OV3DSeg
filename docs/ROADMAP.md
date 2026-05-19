@@ -71,9 +71,9 @@ Server environment target observed during Phase 0:
 ### stage-ov-head (in progress)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while
   preserving most closed-set performance.
-- Status: branch created on 2026-05-20.
-- Next check: implement `ra_ov3dseg/models/ov_head.py`, cache 16 class text
-  prototypes, and write a smoke launcher before any full fine-tune.
+- Status: OV head module and text prototype cache script implemented locally.
+- Next check: cache 16 class text prototypes on the server, then write a smoke
+  fine-tune launcher before any full fine-tune.
 
 ### stage-baseline (complete)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.

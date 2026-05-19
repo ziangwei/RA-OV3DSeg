@@ -1155,7 +1155,7 @@ this list at each check-in.
 
 ### Stage 2 — OV Head Replacement
 - [x] Branch `stage-2-ov-head` created
-- [ ] `ra_ov3dseg/models/ov_head.py` implemented
+- [x] `ra_ov3dseg/models/ov_head.py` implemented
 - [ ] Text prototype matrix cached
 - [ ] Short fine-tune completed (backbone frozen)
 - [ ] `outputs/checkpoints/ov_head_aligned.pt` produced
