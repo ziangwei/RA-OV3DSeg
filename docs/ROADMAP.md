@@ -1,6 +1,6 @@
 # RA-OV3DSeg Roadmap
 
-> **Current Stage**: stage-baseline
+> **Current Stage**: stage-ov-head
 > **Last Updated**: 2026-05-20
 
 This is the live operational plan. The static execution plan is in
@@ -9,17 +9,16 @@ that occur during execution go in this file.
 
 ## Current Stage
 
-**stage-baseline**: reproduce Pointcept SpUNet nuScenes-lidarseg validation
-mIoU >= 0.70 using Pointcept's own training launcher and recipe. See
-`EXECUTION_PLAN.md` Section 4.
+**stage-ov-head**: replace the closed-set classifier with a SigLIP
+text-prototype cosine head while keeping closed-set mIoU within 0.08 of the
+Stage 1 baseline. See `EXECUTION_PLAN.md` Section 5.
 
 ## Next Experiment
 
-Next action: merge the accepted Stage 1 baseline into `main`, tag
-`stage1-baseline-complete`, then branch Stage 2 for the text-aligned OV head.
-The Stage 2 target is to replace the closed-set classifier with a SigLIP
-prototype cosine head while keeping closed-set mIoU within 0.08 of the Stage 1
-baseline.
+Next Stage 2 experiment: implement the text-prototype OV head and run a smoke
+fine-tune from `outputs/checkpoints/closed_set_baseline.pt`. The acceptance
+threshold is val mIoU >= 0.6632, computed from the Stage 1 baseline
+0.7432 - 0.08.
 
 Server discovery commands:
 
@@ -69,7 +68,14 @@ Server environment target observed during Phase 0:
 
 ## Stage History
 
-### stage-baseline (in progress)
+### stage-ov-head (in progress)
+- Goal: replace the closed-set head with a SigLIP prototype cosine head while
+  preserving most closed-set performance.
+- Status: branch created on 2026-05-20.
+- Next check: implement `ra_ov3dseg/models/ov_head.py`, cache 16 class text
+  prototypes, and write a smoke launcher before any full fine-tune.
+
+### stage-baseline (complete)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.
 - Status: accepted. Fast full-val gate passed on 2026-05-14 with mIoU 0.7432.
 - C2 check-in: baseline is credible for Stage 2. It uses Pointcept SpUNet's

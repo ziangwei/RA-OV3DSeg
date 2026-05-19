@@ -1154,7 +1154,7 @@ this list at each check-in.
 - [ ] `stage1-baseline-complete` tag
 
 ### Stage 2 — OV Head Replacement
-- [ ] Branch `stage-2-ov-head` created
+- [x] Branch `stage-2-ov-head` created
 - [ ] `ra_ov3dseg/models/ov_head.py` implemented
 - [ ] Text prototype matrix cached
 - [ ] Short fine-tune completed (backbone frozen)
