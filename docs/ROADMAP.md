@@ -1,6 +1,6 @@
 # RA-OV3DSeg Roadmap
 
-> **Current Stage**: stage-teacher
+> **Current Stage**: stage-reliability
 > **Last Updated**: 2026-05-20
 
 This is the live operational plan. The static execution plan is in
@@ -9,20 +9,18 @@ that occur during execution go in this file.
 
 ## Current Stage
 
-**stage-teacher**: build a SAM2 + SigLIP dense open-vocabulary teacher,
-project its pseudo-labels to nuScenes LiDAR points, and check whether the
-teacher is strong enough for Stage 4 distillation. See `EXECUTION_PLAN.md`
-Section 6.
+**stage-reliability**: train the OV student with the Stage 2 text-aligned
+head and the Stage 3 SAM2+SigLIP teacher, then run reliability threshold and
+component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Next Stage 3 step: finish cleanup/tagging, then prepare Stage 4
-reliability-aware distillation. The planned 128-sample diagnostic passed the
-0.10 gate with projected teacher mIoU 0.1022 and coverage 0.5578. The raw
-teacher is weak, but semantic-only confidence ranking still exposes useful
-subsets: top-20% confidence mIoU was 0.3149 and top-40% confidence mIoU was
-0.3159 after excluding background/ignore from ranking. The teacher comparison
-artifact is `outputs/results/teacher_comparison.md`.
+Next Stage 4 experiment: align the reliability pipeline with the SAM2+SigLIP
+teacher before launching full ablations. Reliability inputs should use
+projected dense teacher point logits, semantic confidence with
+background/ignore excluded from semantic ranking, projection geometry, and
+distance weighting. Start with a small smoke run, then run the threshold
+ablation `[0.0, 0.3, 0.5, 0.7, 0.9]`.
 
 Server discovery commands:
 
@@ -72,10 +70,20 @@ Server environment target observed during Phase 0:
 
 ## Stage History
 
-### stage-teacher (in progress)
+### stage-reliability (in progress)
+- Goal: test whether reliability filtering turns the weak SAM2+SigLIP teacher
+  into useful 3D distillation supervision.
+- Status: branch created on 2026-05-20 after `stage3-teacher-complete`.
+- First task: update/verify reliability computation so it consumes
+  SAM2+SigLIP dense point pseudo-labels and excludes background/ignore from
+  semantic confidence ranking.
+- Planned gate: at least one non-zero reliability threshold beats threshold=0
+  by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
+
+### stage-teacher (complete)
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
   SigLIP text prototypes, then project them to LiDAR points.
-- Status: branch created on 2026-05-20.
+- Status: complete. Tag `stage3-teacher-complete` created on 2026-05-20.
 - Latest diagnostic: 128 cross-scene samples passed on 2026-05-20 with
   projected teacher mIoU 0.1022 and prediction coverage 0.5578. Semantic-only
   confidence ranking gave top-20% mIoU 0.3149 and top-40% mIoU 0.3159.
@@ -86,8 +94,6 @@ Server environment target observed during Phase 0:
   prediction coverage 0.4209. Per-sample mIoU was 0.1367, 0.1583, 0.1037,
   0.1132, and 0.0775.
 - Teacher comparison artifact: `outputs/results/teacher_comparison.md`.
-- Next check: finish Stage 3 cleanup/tag and move into Stage 4 reliability
-  ablations.
 - Teacher environment: use a separate `ra-teacher` env with PyTorch/TorchVision
   2.5/0.20 and `requirements-teacher.txt`; keep the Pointcept training env on
   its validated torch/spconv stack.
@@ -103,6 +109,9 @@ Server environment target observed during Phase 0:
 - Decision: do not treat full SAM2+SigLIP pseudo-labels as clean supervision.
   Stage 4 should test whether reliability filtering can exploit the cleaner
   semantic subset while downweighting noisy/background-dominated regions.
+- Retrospective: no stop condition fired. The raw teacher only narrowly clears
+  the 0.10 gate, but semantic confidence subsets are much cleaner, which is
+  sufficient to justify Stage 4 reliability ablations.
 
 ### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while

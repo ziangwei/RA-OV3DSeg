@@ -1173,10 +1173,10 @@ this list at each check-in.
 - [x] Gate: projected mIoU ≥ 0.10 (or pivot decision recorded)
 - [x] EXPERIMENT_RECAP updated
 - [x] INTERVIEW_PREP updated
-- [ ] `stage3-teacher-complete` tag
+- [x] `stage3-teacher-complete` tag
 
 ### Stage 4 — Reliability Distillation
-- [ ] Branch `stage-4-reliability` created
+- [x] Branch `stage-4-reliability` created
 - [ ] Threshold ablation: 5 runs complete
 - [ ] Component ablation: 5 runs complete
 - [ ] Both ablation tables and plots produced
