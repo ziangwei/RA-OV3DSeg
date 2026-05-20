@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import re
@@ -355,10 +356,28 @@ class RALoadReliabilityTeacher:
         return data_dict
 
 
-try:
-    from pointcept.datasets.builder import TRANSFORMS
-except Exception:  # pragma: no cover - Pointcept is available only on the training server.
-    TRANSFORMS = None
+def _resolve_pointcept_transforms_registry() -> Any | None:
+    """Find Pointcept's transform registry across small upstream layout shifts."""
+
+    candidate_modules = (
+        "pointcept.datasets.transform",
+        "pointcept.datasets.transform.builder",
+        "pointcept.datasets.transforms",
+        "pointcept.datasets.transforms.builder",
+        "pointcept.datasets.builder",
+    )
+    for module_name in candidate_modules:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        transforms = getattr(module, "TRANSFORMS", None)
+        if transforms is not None:
+            return transforms
+    return None
+
+
+TRANSFORMS = _resolve_pointcept_transforms_registry()
 
 if TRANSFORMS is not None:
     TRANSFORMS.register_module("RALoadReliabilityTeacher")(RALoadReliabilityTeacher)
