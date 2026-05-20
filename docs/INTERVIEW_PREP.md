@@ -32,6 +32,7 @@ future work.
 | SAM2+SigLIP teacher projected mIoU | 0.1022 | 128-sample official16 diagnostic; coverage 0.5578 |
 | SAM2+SigLIP semantic top-confidence mIoU | 0.3149 / 0.3159 | top-20% / top-40% after excluding background/ignore from ranking |
 | Rank-calibrated reliability cache | mean 0.4990 | 128 samples; high>=0.5 ratio 0.4990; semantic score ratio 0.4196 |
+| Reliability distillation smoke | pass | threshold 0.5; distill_valid_ratio 0.1190 after Pointcept GridSample |
 | Best reliability threshold | TBD | from ablation |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 

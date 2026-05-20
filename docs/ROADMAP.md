@@ -15,12 +15,12 @@ component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Next Stage 4 experiment: run the reliability-distillation smoke training path
-against the 128-sample rank-calibrated cache before launching full ablations.
-The smoke run must verify that Pointcept batches receive aligned
-`teacher_logits`, `teacher_valid_mask`, and `reliability_weight`, and that the
-first forward pass reports a non-zero `distill_valid_ratio`. If it passes, run
-the threshold ablation `[0.0, 0.3, 0.5, 0.7, 0.9]`.
+Next Stage 4 experiment: run a 128-cache pilot threshold sweep before spending
+full teacher-cache cost. The reliability-distillation smoke path has passed,
+so the next question is whether thresholded distillation has directional signal
+on the cached subset. Run `[0.0, 0.3, 0.5, 0.7, 0.9]` on the same cached
+train/val subset, treat the result as a pilot rather than the final Stage 4
+gate, then decide whether to generate a larger or full train cache.
 
 Server discovery commands:
 
@@ -93,6 +93,15 @@ Server environment target observed during Phase 0:
   the Stage 2 OV head checkpoint, injects reliability teacher fields through a
   Pointcept transform, slices SAM2+SigLIP's appended background class away, and
   applies reliability-weighted dense KL alongside supervised CE.
+- Reliability distillation smoke passed on the server: threshold 0.5 produced
+  val_mIoU 0.5686 on the smoke subset, with distill_valid_ratio 0.1190 and
+  distill_mean_weight 0.7338. This validates batch-field propagation and
+  Pointcept point-index alignment after GridSample, but the smoke mIoU is not
+  a Stage 4 quality result.
+- Hidden constraint: the current teacher/reliability cache covers only the 128
+  diagnostic samples. Full train-split ablations require a larger/full cache;
+  using the 128 cache with full train data would either fail in strict mode or
+  silently reduce distillation to a tiny fraction of batches in non-strict mode.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
