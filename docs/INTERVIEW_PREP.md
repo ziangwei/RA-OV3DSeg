@@ -28,7 +28,7 @@ future work.
 |---|---|---|
 | Closed-set val mIoU (Pointcept SpUNet) | 0.7432 | full nuScenes-lidarseg val, fast Pointcept SemSegEvaluator |
 | Text-aligned OV head closed-set drop | -0.0033 | best mIoU 0.7465 vs Stage 1 0.7432 |
-| SAM2+SigLIP teacher projected mIoU | TBD | on diagnostic split |
+| SAM2+SigLIP teacher projected mIoU | 0.1148 | 5-sample official16 diagnostic; coverage 0.4209 |
 | Best reliability threshold | TBD | from ablation |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 
@@ -43,7 +43,14 @@ val mIoU, and lets the project focus on the actual contribution: text-aligned
 heads, teacher signals, and reliability weighting.
 
 ### Q: Why SAM2 + SigLIP instead of CAT-Seg or OpenSeg?
-A: filled at Stage 3.
+A: SAM2 provides model-agnostic image masks, while SigLIP supplies the
+text-image similarity needed to map those masks into the nuScenes lidarseg
+class space. The first implementation failed because background competed with
+semantic classes and raw lidarseg names such as `driveable_surface` were poor
+text prompts. After removing background from mask classification and using
+driving-scene phrases, the 5-sample projected teacher diagnostic reached 0.1148
+mIoU, above the 0.10 Stage 3 gate. This is still a weak teacher, so Stage 4
+must treat it as noisy pseudo-label supervision rather than as ground truth.
 
 ### Q: Your novel-class mIoU is low. Is OV actually working?
 A: filled at Stage 4. This is the project's sharpest question and must be

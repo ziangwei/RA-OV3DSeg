@@ -16,10 +16,10 @@ Section 6.
 
 ## Next Experiment
 
-Next Stage 3 experiment: run the SAM2 + SigLIP teacher diagnostic chain on a
-small nuScenes subset: projection, teacher extraction, point assignment, and
-official-16 pseudo-label evaluation. The gate is projected teacher mIoU >=
-0.10; if the teacher remains weak, record the pivot decision before Stage 4.
+Next Stage 3 experiment: expand SAM2 + SigLIP teacher diagnostics from 5
+samples to a larger split, preferably 32 samples first and then the planned
+diagnostic split if runtime is acceptable. The 5-sample diagnostic passed the
+0.10 gate with projected teacher mIoU 0.1148 and coverage 0.4209.
 
 Server discovery commands:
 
@@ -73,12 +73,17 @@ Server environment target observed during Phase 0:
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
   SigLIP text prototypes, then project them to LiDAR points.
 - Status: branch created on 2026-05-20.
-- Next check: run a one-sample server diagnostic with
-  `scripts/extract_sam2_teacher.py`, then project and evaluate the resulting
-  point pseudo-labels.
+- Latest diagnostic: 5 samples passed on 2026-05-20 with projected teacher
+  mIoU 0.1148 and prediction coverage 0.4209. Per-sample mIoU was 0.1367,
+  0.1583, 0.1037, 0.1132, and 0.0775.
+- Next check: expand to 32 samples before declaring Stage 3 complete.
 - Teacher environment: use a separate `ra-teacher` env with PyTorch/TorchVision
   2.5/0.20 and `requirements-teacher.txt`; keep the Pointcept training env on
   its validated torch/spconv stack.
+- Adjustment: the initial SAM2+SigLIP attempt collapsed to background and
+  construction_vehicle at 0.0024 mIoU. Removing background from mask
+  classification and replacing raw class names with driving-scene phrases fixed
+  the immediate failure.
 
 ### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while

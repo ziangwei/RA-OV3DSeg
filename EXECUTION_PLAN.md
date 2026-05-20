@@ -1168,11 +1168,11 @@ this list at each check-in.
 - [x] Branch `stage-3-teacher` created
 - [x] `ra_ov3dseg/models/sam2_siglip_teacher.py` implemented
 - [x] `scripts/extract_sam2_teacher.py` implemented
-- [ ] Teacher cache produced for diagnostic split
+- [x] Teacher cache produced for diagnostic split
 - [ ] Teacher comparison table populated
-- [ ] Gate: projected mIoU ≥ 0.10 (or pivot decision recorded)
-- [ ] EXPERIMENT_RECAP updated
-- [ ] INTERVIEW_PREP updated
+- [x] Gate: projected mIoU ≥ 0.10 (or pivot decision recorded)
+- [x] EXPERIMENT_RECAP updated
+- [x] INTERVIEW_PREP updated
 - [ ] `stage3-teacher-complete` tag
 
 ### Stage 4 — Reliability Distillation
