@@ -348,11 +348,36 @@ class ReliabilityTeacherCache:
 class RALoadReliabilityTeacher:
     """Pointcept transform that injects teacher logits and reliability weights."""
 
+    point_keys = (
+        "teacher_logits",
+        "teacher_valid_mask",
+        "reliability_weight",
+        "reliability_weight_raw",
+    )
+
     def __init__(self, **kwargs: Any) -> None:
         self.cache = ReliabilityTeacherCache(**kwargs)
 
     def __call__(self, data_dict: dict[str, Any]) -> dict[str, Any]:
         data_dict.update(self.cache.load_for_data_dict(data_dict))
+        index_valid_keys = list(
+            data_dict.get(
+                "index_valid_keys",
+                [
+                    "coord",
+                    "color",
+                    "normal",
+                    "superpoint",
+                    "strength",
+                    "segment",
+                    "instance",
+                ],
+            )
+        )
+        for key in self.point_keys:
+            if key not in index_valid_keys:
+                index_valid_keys.append(key)
+        data_dict["index_valid_keys"] = index_valid_keys
         return data_dict
 
 
