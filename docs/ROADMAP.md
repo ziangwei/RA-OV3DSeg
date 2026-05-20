@@ -1,6 +1,6 @@
 # RA-OV3DSeg Roadmap
 
-> **Current Stage**: stage-ov-head
+> **Current Stage**: stage-teacher
 > **Last Updated**: 2026-05-20
 
 This is the live operational plan. The static execution plan is in
@@ -9,16 +9,17 @@ that occur during execution go in this file.
 
 ## Current Stage
 
-**stage-ov-head**: replace the closed-set classifier with a SigLIP
-text-prototype cosine head while keeping closed-set mIoU within 0.08 of the
-Stage 1 baseline. See `EXECUTION_PLAN.md` Section 5.
+**stage-teacher**: build a SAM2 + SigLIP dense open-vocabulary teacher,
+project its pseudo-labels to nuScenes LiDAR points, and check whether the
+teacher is strong enough for Stage 4 distillation. See `EXECUTION_PLAN.md`
+Section 6.
 
 ## Next Experiment
 
-Next Stage 2 experiment: implement the text-prototype OV head and run a smoke
-fine-tune from `outputs/checkpoints/closed_set_baseline.pt`. The acceptance
-threshold is val mIoU >= 0.6632, computed from the Stage 1 baseline
-0.7432 - 0.08.
+Next Stage 3 experiment: implement a SAM2 + SigLIP teacher wrapper and run a
+diagnostic extraction/evaluation on a small nuScenes subset. The gate is
+projected teacher mIoU >= 0.10; if the teacher remains weak, record the pivot
+decision before Stage 4.
 
 Server discovery commands:
 
@@ -68,14 +69,22 @@ Server environment target observed during Phase 0:
 
 ## Stage History
 
-### stage-ov-head (in progress)
+### stage-teacher (in progress)
+- Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
+  SigLIP text prototypes, then project them to LiDAR points.
+- Status: branch created on 2026-05-20.
+- Next check: inspect current projection and dense-teacher utilities, add SAM2
+  dependency path, and implement a small diagnostic extraction script.
+
+### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while
   preserving most closed-set performance.
 - Status: gate passed on 2026-05-20. Best val mIoU was 0.7465, with final eval
   at 0.7449. This is above the 0.6632 threshold and does not drop from the
   Stage 1 baseline.
-- Next check: Stage 2 acceptance review, then preserve
-  `outputs/checkpoints/ov_head_aligned.pt` and prepare Stage 3 teacher work.
+- Retrospective: no stop condition fired. The result should be framed as
+  matching the closed-set baseline within noise, not as a meaningful
+  improvement over Stage 1.
 
 ### stage-baseline (complete)
 - Goal: reproduce Pointcept SpUNet nuScenes-lidarseg val mIoU >= 0.70.

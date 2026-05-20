@@ -1162,10 +1162,10 @@ this list at each check-in.
 - [x] Gate: drop ≤ 0.08 vs Stage 1
 - [x] EXPERIMENT_RECAP updated
 - [x] INTERVIEW_PREP updated
-- [ ] `stage2-ov-head-complete` tag
+- [x] `stage2-ov-head-complete` tag
 
 ### Stage 3 — SAM2 + SigLIP Teacher
-- [ ] Branch `stage-3-teacher` created
+- [x] Branch `stage-3-teacher` created
 - [ ] `ra_ov3dseg/models/sam2_siglip_teacher.py` implemented
 - [ ] `scripts/extract_sam2_teacher.py` implemented
 - [ ] Teacher cache produced for diagnostic split
