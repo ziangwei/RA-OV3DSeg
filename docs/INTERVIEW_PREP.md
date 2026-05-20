@@ -28,7 +28,8 @@ future work.
 |---|---|---|
 | Closed-set val mIoU (Pointcept SpUNet) | 0.7432 | full nuScenes-lidarseg val, fast Pointcept SemSegEvaluator |
 | Text-aligned OV head closed-set drop | -0.0033 | best mIoU 0.7465 vs Stage 1 0.7432 |
-| SAM2+SigLIP teacher projected mIoU | 0.1148 | 5-sample official16 diagnostic; coverage 0.4209 |
+| SAM2+SigLIP teacher projected mIoU | 0.1376 | 32-sample official16 diagnostic; coverage 0.5464 |
+| SAM2+SigLIP semantic top-confidence mIoU | 0.3002 / 0.3386 | top-20% / top-40% after excluding background/ignore from ranking |
 | Best reliability threshold | TBD | from ablation |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 
@@ -49,22 +50,34 @@ class space. The first implementation failed because background competed with
 semantic classes and raw lidarseg names such as `driveable_surface` were poor
 text prompts. After removing background from mask classification and using
 driving-scene phrases, the 5-sample projected teacher diagnostic reached 0.1148
-mIoU, above the 0.10 Stage 3 gate. This is still a weak teacher, so Stage 4
-must treat it as noisy pseudo-label supervision rather than as ground truth.
+mIoU, above the 0.10 Stage 3 gate. A larger 32-sample cross-scene diagnostic
+then reached 0.1376 mIoU with 0.5464 coverage. This is still a weak teacher,
+so Stage 4 must treat it as noisy pseudo-label supervision rather than as
+ground truth.
 
 ### Q: Your novel-class mIoU is low. Is OV actually working?
 A: filled at Stage 4. This is the project's sharpest question and must be
 answered honestly.
 
 ### Q: How does your reliability score differ from a confidence threshold?
-A: filled at Stage 4.
+A: Confidence alone is not enough. In Stage 3, naive confidence ranking was
+misleading because background/ignore predictions dominated high-confidence
+points; 56.67% of score-valid points were excluded when ranking only semantic
+pseudo-labels. After that correction, semantic top-20% and top-40% subsets
+reached 0.3002 and 0.3386 mIoU, suggesting that confidence is useful only as
+one component of a reliability score, not as the whole method.
 
 ### Q: Why only nuScenes? What about SemanticKITTI / Waymo?
 A: filled at Stage 5.
 
 ## Honest Limitations
 
-One bullet per limitation. Filled as discovered.
+- The SAM2+SigLIP teacher is useful but weak: raw projected mIoU is 0.1376 on
+  the current 32-sample diagnostic, so Stage 4 must validate reliability
+  filtering rather than assume pseudo-labels are clean supervision.
+- Teacher confidence is not automatically calibrated for 3D distillation.
+  Background/ignore predictions can be very confident and must be handled
+  separately from semantic pseudo-label ranking.
 
 ## What I Would Do With 3 More Months
 

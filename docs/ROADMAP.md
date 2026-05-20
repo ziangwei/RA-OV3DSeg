@@ -16,10 +16,12 @@ Section 6.
 
 ## Next Experiment
 
-Next Stage 3 experiment: expand SAM2 + SigLIP teacher diagnostics from 5
-samples to a larger split, preferably 32 samples first and then the planned
-diagnostic split if runtime is acceptable. The 5-sample diagnostic passed the
-0.10 gate with projected teacher mIoU 0.1148 and coverage 0.4209.
+Next Stage 3 experiment: expand SAM2 + SigLIP teacher diagnostics from the
+32-sample cross-scene split to the planned diagnostic split if runtime is
+acceptable. The 32-sample diagnostic passed the 0.10 gate with projected
+teacher mIoU 0.1376 and coverage 0.5464. Semantic-only confidence ranking
+looks useful: top-20% confidence mIoU was 0.3002 and top-40% confidence mIoU
+was 0.3386 after excluding background/ignore from ranking.
 
 Server discovery commands:
 
@@ -73,10 +75,14 @@ Server environment target observed during Phase 0:
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
   SigLIP text prototypes, then project them to LiDAR points.
 - Status: branch created on 2026-05-20.
-- Latest diagnostic: 5 samples passed on 2026-05-20 with projected teacher
-  mIoU 0.1148 and prediction coverage 0.4209. Per-sample mIoU was 0.1367,
-  0.1583, 0.1037, 0.1132, and 0.0775.
-- Next check: expand to 32 samples before declaring Stage 3 complete.
+- Latest diagnostic: 32 cross-scene samples passed on 2026-05-20 with
+  projected teacher mIoU 0.1376 and prediction coverage 0.5464. Semantic-only
+  confidence ranking gave top-20% mIoU 0.3002 and top-40% mIoU 0.3386.
+- Previous 5-sample diagnostic passed with projected teacher mIoU 0.1148 and
+  prediction coverage 0.4209. Per-sample mIoU was 0.1367, 0.1583, 0.1037,
+  0.1132, and 0.0775.
+- Next check: expand to the planned diagnostic split before declaring Stage 3
+  complete.
 - Teacher environment: use a separate `ra-teacher` env with PyTorch/TorchVision
   2.5/0.20 and `requirements-teacher.txt`; keep the Pointcept training env on
   its validated torch/spconv stack.
@@ -84,6 +90,11 @@ Server environment target observed during Phase 0:
   construction_vehicle at 0.0024 mIoU. Removing background from mask
   classification and replacing raw class names with driving-scene phrases fixed
   the immediate failure.
+- Adjustment: naive top-confidence ranking was misleading because
+  background/ignore predictions dominated high-confidence points. The
+  diagnostic now excludes ignore/background labels for semantic confidence
+  ranking while still reporting the excluded ratio; on the 32-sample run,
+  56.67% of score-valid points were excluded from semantic ranking.
 
 ### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while
