@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated confidence bin edges for calibration diagnostics. Empty disables.",
     )
     parser.add_argument(
+        "--include_ignore_in_confidence_ranking",
+        action="store_true",
+        help="Include ignore/background predictions when ranking top-confidence diagnostics.",
+    )
+    parser.add_argument(
         "--max_confidence_diagnostic_points",
         default=5_000_000,
         type=int,
@@ -234,6 +239,13 @@ def class_histogram(pred: np.ndarray, mask: np.ndarray, class_names: list[str]) 
     return hist
 
 
+def exclude_label_ids(mask: np.ndarray, pred: np.ndarray, label_ids: np.ndarray) -> np.ndarray:
+    if label_ids.shape[0] == 0:
+        return mask
+    excluded = np.isin(pred, label_ids)
+    return mask & (~excluded)
+
+
 def summarize_retained_subset(
     name: str,
     pred: np.ndarray,
@@ -282,11 +294,18 @@ def summarize_confidence_diagnostics(
     ignore_ids: np.ndarray,
     confidence_fractions: list[float],
     confidence_bins: list[float],
+    ranking_exclude_ids: np.ndarray,
 ) -> dict[str, Any]:
     score_valid = np.isfinite(scores) & (pred >= 0) & (pred < len(class_names))
-    candidate_indices = np.flatnonzero(score_valid)
+    ranking_mask = exclude_label_ids(score_valid, pred, ranking_exclude_ids)
+    candidate_indices = np.flatnonzero(ranking_mask)
+    excluded_mask = score_valid & (~ranking_mask)
     diagnostics: dict[str, Any] = {
-        "num_score_valid_points": int(candidate_indices.shape[0]),
+        "num_score_valid_points": int(score_valid.sum()),
+        "num_all_score_valid_points": int(score_valid.sum()),
+        "num_ranking_candidate_points": int(candidate_indices.shape[0]),
+        "num_ranking_excluded_points": int(excluded_mask.sum()),
+        "ranking_excluded_class_hist": class_histogram(pred, excluded_mask, class_names),
         "top_fractions": [],
         "bins": [],
     }
@@ -321,9 +340,9 @@ def summarize_confidence_diagnostics(
             raise ValueError("--confidence_bins must be strictly increasing.")
         for bin_idx, (low, high) in enumerate(zip(confidence_bins, confidence_bins[1:])):
             if bin_idx == len(confidence_bins) - 2:
-                keep_mask = score_valid & (scores >= low) & (scores <= high)
+                keep_mask = ranking_mask & (scores >= low) & (scores <= high)
             else:
-                keep_mask = score_valid & (scores >= low) & (scores < high)
+                keep_mask = ranking_mask & (scores >= low) & (scores < high)
             item = summarize_retained_subset(
                 name=f"confidence_{low:.2f}_{high:.2f}",
                 pred=pred,
@@ -361,6 +380,9 @@ def main() -> int:
     jobs = build_jobs(args, dataset)
     confidence_fractions = parse_float_list(args.confidence_fractions)
     confidence_bins = parse_float_list(args.confidence_bins)
+    ranking_exclude_ids = (
+        np.asarray([], dtype=np.int64) if args.include_ignore_in_confidence_ranking else ignore_label_ids
+    )
 
     num_classes = len(class_names)
     total_intersections = np.zeros(num_classes, dtype=np.int64)
@@ -429,6 +451,7 @@ def main() -> int:
                 ignore_ids=ignore_label_ids,
                 confidence_fractions=confidence_fractions,
                 confidence_bins=confidence_bins,
+                ranking_exclude_ids=ranking_exclude_ids,
             )
         total_intersections += arrays["intersections"].astype(np.int64)
         total_unions += arrays["unions"].astype(np.int64)
@@ -525,6 +548,7 @@ def main() -> int:
                 ignore_ids=ignore_label_ids,
                 confidence_fractions=confidence_fractions,
                 confidence_bins=confidence_bins,
+                ranking_exclude_ids=ranking_exclude_ids,
             )
     base_set = set(base_label_ids.tolist())
     novel_set = set(novel_label_ids.tolist())
@@ -575,6 +599,7 @@ def main() -> int:
             "num_samples": len(jobs),
             "confidence_fractions": confidence_fractions,
             "confidence_bins": confidence_bins,
+            "confidence_ranking_exclude_ids": ranking_exclude_ids.tolist(),
             "outputs": outputs,
             "aggregate_metrics": aggregate_metrics,
             "batch_eval_npz": str(batch_eval_npz),
@@ -596,6 +621,10 @@ def main() -> int:
             secondary[key] = float(value)
     confidence_diagnostics = aggregate_metrics.get("confidence_diagnostics", {})
     if isinstance(confidence_diagnostics, dict):
+        num_score_valid = float(confidence_diagnostics.get("num_score_valid_points", 0))
+        num_excluded = float(confidence_diagnostics.get("num_ranking_excluded_points", 0))
+        if num_score_valid > 0:
+            secondary["conf_ranking_excluded_ratio"] = num_excluded / num_score_valid
         for item in confidence_diagnostics.get("top_fractions", []):
             if abs(float(item.get("fraction", -1.0)) - 0.2) < 1e-6 and item.get("all_miou") is not None:
                 secondary["top20_conf_miou"] = float(item["all_miou"])
