@@ -60,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--boundary_margin_ratio", default=0.05, type=float, help="Image border margin ratio.")
     parser.add_argument("--semantic_min_similarity", default=0.0, type=float, help="Semantic weight lower bound.")
     parser.add_argument("--semantic_max_similarity", default=0.35, type=float, help="Semantic weight upper bound.")
+    parser.add_argument(
+        "--reliability_calibration",
+        default="rank",
+        choices=["rank", "raw"],
+        help=(
+            "Calibration for the saved reliability_weight used by Stage 4 thresholds. "
+            "`rank` maps valid raw weights to [0, 1]; `raw` keeps the multiplicative product."
+        ),
+    )
     parser.add_argument("--skip_existing", action="store_true", help="Skip samples with existing outputs.")
     return parser
 
@@ -82,6 +91,28 @@ def summarize_array(values: np.ndarray, valid_mask: np.ndarray | None = None) ->
         "median": float(np.median(values)),
         "max": float(np.max(values)),
     }
+
+
+def calibrate_reliability_weight(raw_weight: np.ndarray, valid_mask: np.ndarray, mode: str) -> np.ndarray:
+    raw_weight = np.nan_to_num(raw_weight.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    calibrated = np.zeros(raw_weight.shape, dtype=np.float32)
+    valid = valid_mask.astype(bool) & np.isfinite(raw_weight) & (raw_weight > 0)
+    if not np.any(valid):
+        return calibrated
+    if mode == "raw":
+        calibrated[valid] = raw_weight[valid]
+        return calibrated
+    if mode != "rank":
+        raise ValueError(f"Unsupported reliability calibration: {mode}")
+
+    valid_indices = np.flatnonzero(valid)
+    order = valid_indices[np.argsort(raw_weight[valid_indices], kind="mergesort")]
+    if order.shape[0] == 1:
+        calibrated[order[0]] = 1.0
+        return calibrated
+    ranks = np.linspace(0.0, 1.0, num=order.shape[0], dtype=np.float32)
+    calibrated[order] = ranks
+    return calibrated
 
 
 def parse_name_set(value: str) -> set[str]:
@@ -257,8 +288,13 @@ def main() -> int:
             semantic_min_similarity=args.semantic_min_similarity,
             semantic_max_similarity=args.semantic_max_similarity,
         )
-        reliability_weight = weights["reliability_weight"]
-        reliability_weight[~point_valid_mask] = 0.0
+        reliability_weight_raw = weights["reliability_weight"].astype(np.float32)
+        reliability_weight_raw[~point_valid_mask] = 0.0
+        reliability_weight = calibrate_reliability_weight(
+            reliability_weight_raw,
+            valid_mask=point_valid_mask,
+            mode=args.reliability_calibration,
+        )
 
         save_bev_score_plot(
             point_xyz=point_xyz,
@@ -289,6 +325,8 @@ def main() -> int:
             geometric_weight=weights["geometric_weight"].astype(np.float32),
             semantic_weight=weights["semantic_weight"].astype(np.float32),
             reliability_weight=reliability_weight.astype(np.float32),
+            reliability_weight_raw=reliability_weight_raw.astype(np.float32),
+            reliability_calibration=np.asarray(args.reliability_calibration),
             score_source=np.asarray(args.score_source),
             score_npz=np.asarray(str(score_npz)),
         )
@@ -308,12 +346,14 @@ def main() -> int:
             "geometric_weight": summarize_array(weights["geometric_weight"], point_valid_mask),
             "semantic_weight": summarize_array(weights["semantic_weight"], point_valid_mask),
             "reliability_weight": summarize_array(reliability_weight, point_valid_mask),
+            "reliability_weight_raw": summarize_array(reliability_weight_raw, point_valid_mask),
             "params": {
                 "max_distance": args.max_distance,
                 "min_distance_weight": args.min_distance_weight,
                 "boundary_margin_ratio": args.boundary_margin_ratio,
                 "semantic_min_similarity": args.semantic_min_similarity,
                 "semantic_max_similarity": args.semantic_max_similarity,
+                "reliability_calibration": args.reliability_calibration,
             },
             "projection_npz": str(projection_npz),
             "score_npz": str(score_npz),

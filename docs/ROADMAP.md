@@ -77,6 +77,14 @@ Server environment target observed during Phase 0:
 - First task: update/verify reliability computation so it consumes
   SAM2+SigLIP dense point pseudo-labels and excludes background/ignore from
   semantic confidence ranking.
+- Reliability smoke result: 128-sample cache count matched expected outputs,
+  and semantic_score_ratio mean was 0.4196, matching the Stage 3 excluded-ratio
+  diagnosis. Raw multiplicative reliability weights were healthy but lived on
+  a 0.0-0.2009 scale, so the fixed Stage 4 thresholds [0.3, 0.5, 0.7, 0.9]
+  would zero out all non-zero-threshold runs if applied directly.
+- Adjustment: keep the raw multiplicative product as `reliability_weight_raw`,
+  and use rank-calibrated `reliability_weight` in [0, 1] for threshold
+  ablations. This preserves the planned threshold grid without lowering gates.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
