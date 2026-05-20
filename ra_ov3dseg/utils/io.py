@@ -63,3 +63,48 @@ def load_text_lines(path: str | Path) -> list[str]:
             if item:
                 lines.append(item)
     return lines
+
+
+def load_sample_indices(path: str | Path) -> list[int]:
+    """Load a reproducible sample-index list from JSON or plain text.
+
+    JSON files may be either a list of integers or a dict with one of the
+    common manifest keys used by the project. Text files may use one index per
+    line, whitespace, or comma-separated values; lines starting with ``#`` are
+    ignored.
+    """
+
+    path = Path(path)
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError(f"sample index file is empty: {path}")
+
+    if path.suffix.lower() == ".json":
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            for key in ("sample_indices", "requested_sample_indices", "indices"):
+                if key in payload:
+                    payload = payload[key]
+                    break
+            else:
+                raise ValueError(
+                    "sample index JSON must be a list or contain one of: "
+                    "sample_indices, requested_sample_indices, indices"
+                )
+        if not isinstance(payload, list):
+            raise ValueError(f"sample index JSON must resolve to a list, got {type(payload).__name__}")
+        raw_items = payload
+    else:
+        raw_items = []
+        for line in text.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            raw_items.extend(item for item in line.replace(",", " ").split() if item)
+
+    indices = [int(item) for item in raw_items]
+    if any(index < 0 for index in indices):
+        raise ValueError(f"sample indices must be non-negative: {path}")
+    if len(indices) != len(set(indices)):
+        raise ValueError(f"sample index file contains duplicates: {path}")
+    return indices

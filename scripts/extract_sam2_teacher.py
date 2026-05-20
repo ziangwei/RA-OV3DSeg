@@ -15,7 +15,7 @@ from ra_ov3dseg.datasets.nuscenes_dataset import CAMERA_CHANNELS, NuScenesDatase
 from ra_ov3dseg.models.sam2_siglip_teacher import SAM2SigLIPTeacher  # noqa: E402
 from ra_ov3dseg.models.teacher_registry import SAM2_SIGLIP, describe_teacher  # noqa: E402
 from ra_ov3dseg.training.labels import NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES  # noqa: E402
-from ra_ov3dseg.utils.io import ensure_dir, is_valid_npz, save_json, save_npz  # noqa: E402
+from ra_ov3dseg.utils.io import ensure_dir, is_valid_npz, load_sample_indices, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 from ra_ov3dseg.utils.run_conclusion import RunConclusion  # noqa: E402
 
@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int)
     parser.add_argument("--start_idx", default=0, type=int)
     parser.add_argument("--max_samples", default=1, type=int)
+    parser.add_argument(
+        "--sample_indices_path",
+        default=None,
+        type=str,
+        help="JSON or text file with explicit sample indices. Overrides start_idx/max_samples.",
+    )
     parser.add_argument("--sam_model_id", default="facebook/sam2.1-hiera-small", type=str)
     parser.add_argument("--siglip_model_name", default="google/siglip-base-patch16-224", type=str)
     parser.add_argument("--cache_dir", default=None, type=str)
@@ -61,11 +67,18 @@ def main() -> int:
 
     try:
         dataset = NuScenesDataset(args.dataroot, version=args.version, verbose=False)
-        sample_indices = dataset.resolve_sample_indices(
-            sample_idx=args.sample_idx,
-            start_idx=args.start_idx,
-            max_samples=args.max_samples,
-        )
+        if args.sample_indices_path is not None:
+            if args.sample_idx is not None:
+                raise ValueError("--sample_idx cannot be combined with --sample_indices_path.")
+            sample_indices = load_sample_indices(args.sample_indices_path)
+            for sample_idx in sample_indices:
+                dataset.get_sample_by_index(sample_idx)
+        else:
+            sample_indices = dataset.resolve_sample_indices(
+                sample_idx=args.sample_idx,
+                start_idx=args.start_idx,
+                max_samples=args.max_samples,
+            )
         teacher_spec = describe_teacher(SAM2_SIGLIP)
         class_names = list(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES[1:])
         teacher = SAM2SigLIPTeacher(

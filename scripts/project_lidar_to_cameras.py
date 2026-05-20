@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 from ra_ov3dseg.datasets.nuscenes_dataset import NuScenesDataset  # noqa: E402
 from ra_ov3dseg.geometry.projection import project_lidar_points_to_cameras  # noqa: E402
-from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
+from ra_ov3dseg.utils.io import ensure_dir, load_sample_indices, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 
@@ -21,6 +21,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int, help="Single sample index to project.")
     parser.add_argument("--start_idx", default=0, type=int, help="First sample index for batch projection.")
     parser.add_argument("--max_samples", default=1, type=int, help="Number of samples to project.")
+    parser.add_argument(
+        "--sample_indices_path",
+        default=None,
+        type=str,
+        help="JSON or text file with explicit sample indices. Overrides start_idx/max_samples.",
+    )
     parser.add_argument(
         "--output_dir",
         default="outputs/projections",
@@ -44,11 +50,18 @@ def main() -> int:
         version=args.version,
         verbose=False,
     )
-    sample_indices = dataset.resolve_sample_indices(
-        sample_idx=args.sample_idx,
-        start_idx=args.start_idx,
-        max_samples=args.max_samples,
-    )
+    if args.sample_indices_path is not None:
+        if args.sample_idx is not None:
+            raise ValueError("--sample_idx cannot be combined with --sample_indices_path.")
+        sample_indices = load_sample_indices(args.sample_indices_path)
+        for sample_idx in sample_indices:
+            dataset.get_sample_by_index(sample_idx)
+    else:
+        sample_indices = dataset.resolve_sample_indices(
+            sample_idx=args.sample_idx,
+            start_idx=args.start_idx,
+            max_samples=args.max_samples,
+        )
     output_dir = ensure_dir(args.output_dir)
     batch_summary = {
         "version": args.version,

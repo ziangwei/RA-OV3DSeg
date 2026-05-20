@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
+from ra_ov3dseg.utils.io import ensure_dir, load_sample_indices, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 
@@ -20,6 +20,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample_idx", default=None, type=int)
     parser.add_argument("--start_idx", default=0, type=int)
     parser.add_argument("--max_samples", default=1, type=int)
+    parser.add_argument(
+        "--sample_indices_path",
+        default=None,
+        type=str,
+        help="JSON or text file with explicit sample indices. Overrides start_idx/max_samples.",
+    )
     parser.add_argument("--projection_npz", default=None, type=str)
     parser.add_argument("--dense_teacher_npz", default=None, type=str)
     parser.add_argument("--projection_dir", default="outputs/projections", type=str)
@@ -84,6 +90,8 @@ def build_jobs(args) -> list[tuple[int, Path, Path]]:
     if args.projection_npz is not None or args.dense_teacher_npz is not None:
         if args.projection_npz is None or args.dense_teacher_npz is None:
             raise ValueError("projection_npz and dense_teacher_npz must be provided together.")
+        if args.sample_indices_path is not None:
+            raise ValueError("--sample_indices_path cannot be combined with explicit projection/dense teacher paths.")
         projection_npz = Path(args.projection_npz).resolve()
         dense_teacher_npz = Path(args.dense_teacher_npz).resolve()
         sample_idx = args.sample_idx
@@ -93,7 +101,11 @@ def build_jobs(args) -> list[tuple[int, Path, Path]]:
             raise ValueError("sample_idx is required if it cannot be inferred from projection filename.")
         return [(sample_idx, projection_npz, dense_teacher_npz)]
 
-    if args.sample_idx is not None:
+    if args.sample_indices_path is not None:
+        if args.sample_idx is not None:
+            raise ValueError("--sample_idx cannot be combined with --sample_indices_path.")
+        sample_indices = load_sample_indices(args.sample_indices_path)
+    elif args.sample_idx is not None:
         sample_indices = [args.sample_idx]
     else:
         sample_indices = list(range(args.start_idx, args.start_idx + args.max_samples))
