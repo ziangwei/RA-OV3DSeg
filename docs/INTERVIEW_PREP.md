@@ -69,6 +69,13 @@ semantic top-20% and top-40% subsets reached 0.3149 and 0.3159 mIoU,
 suggesting that confidence is useful only as one component of a reliability
 score, not as the whole method.
 
+### Q: Did the stronger teacher solve pseudo-label quality?
+A: No. It solved the first-order failure mode but did not produce clean dense
+supervision. SAM2+SigLIP reached the Stage 3 gate at 0.1022 raw projected mIoU
+on the planned 128-sample diagnostic split, which is enough to proceed but not
+enough to trust all pseudo-labels. The project should now be judged by whether
+Stage 4 reliability weighting improves over unfiltered distillation.
+
 ### Q: Why only nuScenes? What about SemanticKITTI / Waymo?
 A: filled at Stage 5.
 

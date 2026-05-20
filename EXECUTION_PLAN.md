@@ -1169,7 +1169,7 @@ this list at each check-in.
 - [x] `ra_ov3dseg/models/sam2_siglip_teacher.py` implemented
 - [x] `scripts/extract_sam2_teacher.py` implemented
 - [x] Teacher cache produced for diagnostic split
-- [ ] Teacher comparison table populated
+- [x] Teacher comparison table populated
 - [x] Gate: projected mIoU ≥ 0.10 (or pivot decision recorded)
 - [x] EXPERIMENT_RECAP updated
 - [x] INTERVIEW_PREP updated
