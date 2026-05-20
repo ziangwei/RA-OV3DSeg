@@ -12,6 +12,7 @@ below via `RunConclusion.append_to_recap()`.
 | 2026-05-20 | stage-ov-head | train_ov_head | success | val_miou=0.7465 | frozen-backbone SigLIP prototype head; final eval mIoU=0.7449 |
 | 2026-05-20 | stage-teacher | eval_dense_teacher_pseudo_labels | success | teacher_miou=0.1148 | SAM2+SigLIP official16 5-sample diagnostic; coverage=0.4209 |
 | 2026-05-20 | stage-teacher | eval_dense_teacher_pseudo_labels | success | teacher_miou=0.1376 | SAM2+SigLIP official16 32-sample diagnostic; coverage=0.5464; semantic top20/top40 mIoU=0.3002/0.3386 |
+| 2026-05-20 | stage-teacher | eval_dense_teacher_pseudo_labels | success | teacher_miou=0.1022 | SAM2+SigLIP official16 128-sample diagnostic; coverage=0.5578; semantic top20/top40 mIoU=0.3149/0.3159 |
 
 ## Carryover Knowledge From Prototype Phase
 
