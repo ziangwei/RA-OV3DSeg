@@ -63,14 +63,12 @@ def timestamp_candidates(value: Any) -> list[int]:
     except (TypeError, ValueError):
         return []
 
-    candidates = [int(numeric)]
-    # Pointcept preprocessing may store seconds while the nuScenes sample record
-    # stores microseconds. Keep both forms, but de-duplicate in order.
+    # Pointcept preprocessing stores seconds, while nuScenes sample records store
+    # microseconds. Do not keep lossy integer-second candidates: multiple samples
+    # can share the same second and would be mapped to the wrong teacher cache.
     if abs(numeric) < 1_000_000_000_000:
-        candidates.append(int(round(numeric * 1_000_000)))
-    else:
-        candidates.append(int(round(numeric / 1_000_000)))
-    return list(dict.fromkeys(candidates))
+        return [int(round(numeric * 1_000_000))]
+    return [int(round(numeric))]
 
 
 def info_timestamps(info: dict[str, Any]) -> list[int]:

@@ -119,6 +119,9 @@ Server environment target observed during Phase 0:
   does not trust generic `token`; pilot preflight reports token namespace
   differences as warnings while using point count and raw/cache coordinate
   equality as the hard alignment gate.
+- Timestamp fallback now uses only exact microsecond timestamps. Integer-second
+  matching is forbidden because nuScenes has multiple samples per second and
+  can map Pointcept info rows to the wrong teacher cache.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 

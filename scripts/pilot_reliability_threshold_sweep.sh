@@ -98,6 +98,7 @@ from __future__ import annotations
 import pickle
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -147,10 +148,12 @@ val_infos = load_infos("val")
 missing_names = []
 missing_cache = []
 bad_lidar = []
+duplicate_names = []
 token_warnings = []
 point_mismatch = []
 sample_indices = []
 for split, infos in (("train", train_infos), ("val", val_infos)):
+    split_indices = []
     for row, info in enumerate(infos):
         name = str(info.get("lidar_token", ""))
         match = re.fullmatch(r"sample_(\d+)", name)
@@ -159,6 +162,7 @@ for split, infos in (("train", train_infos), ("val", val_infos)):
             continue
         sample_idx = int(match.group(1))
         sample_indices.append(sample_idx)
+        split_indices.append(sample_idx)
         reliability = reliability_dir / f"sample_{sample_idx:04d}_reliability.npz"
         dense = dense_point_dir / f"sample_{sample_idx:04d}_dense_point_logits.npz"
         if not reliability.exists() or not dense.exists():
@@ -189,6 +193,11 @@ for split, infos in (("train", train_infos), ("val", val_infos)):
         coord_error = float(np.max(np.abs(raw_xyz - cache_xyz))) if raw_xyz.size else 0.0
         if coord_error > coord_max_error:
             point_mismatch.append(f"{name}: max_abs_coord_error={coord_error:.4f}")
+    duplicate_names.extend(
+        f"{split}:sample_{sample_idx:04d}x{count}"
+        for sample_idx, count in Counter(split_indices).items()
+        if count > 1
+    )
 
 if missing_names:
     raise SystemExit(
@@ -200,6 +209,8 @@ if missing_cache:
         "[pilot][ERROR] subset references samples without cache: "
         + ", ".join(sorted(set(missing_cache))[:8])
     )
+if duplicate_names:
+    raise SystemExit("[pilot][ERROR] subset has duplicate cache sample ids: " + "; ".join(duplicate_names[:8]))
 if bad_lidar:
     raise SystemExit("[pilot][ERROR] cannot read pilot lidar/cache inputs: " + "; ".join(bad_lidar[:4]))
 if point_mismatch:
