@@ -67,7 +67,7 @@ def info_timestamp(info: dict[str, Any]) -> int | None:
     return None
 
 
-def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int]]:
+def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int], dict[int, int]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     tokens = {
         str(item["sample_token"])
@@ -86,9 +86,16 @@ def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int]]:
         and item.get("sample_token") is not None
         and item.get("sample_idx") is not None
     }
+    timestamp_to_index = {
+        int(item["timestamp"]): int(item["sample_idx"])
+        for item in data.get("samples", [])
+        if isinstance(item, dict)
+        and item.get("timestamp") is not None
+        and item.get("sample_idx") is not None
+    }
     if not tokens and not timestamps:
         raise ValueError(f"No samples[].sample_token or samples[].timestamp entries found in {path}")
-    return tokens, timestamps, token_to_index
+    return tokens, timestamps, token_to_index, timestamp_to_index
 
 
 def filter_by_manifest(
@@ -96,6 +103,7 @@ def filter_by_manifest(
     tokens: set[str],
     timestamps: set[int],
     token_to_index: dict[str, int],
+    timestamp_to_index: dict[int, int],
 ) -> list[dict[str, Any]]:
     filtered = []
     for info in infos:
@@ -104,10 +112,20 @@ def filter_by_manifest(
         if token not in tokens and timestamp not in timestamps:
             continue
         copied = dict(info)
+        sample_idx = None
         if token:
             copied["sample_token"] = token
             if token in token_to_index:
-                copied["sample_idx"] = token_to_index[token]
+                sample_idx = token_to_index[token]
+        if sample_idx is None and timestamp is not None and timestamp in timestamp_to_index:
+            sample_idx = timestamp_to_index[timestamp]
+        if sample_idx is not None:
+            copied["sample_idx"] = sample_idx
+            # Pointcept NuScenesDataset exposes only lidar_token as data_dict["name"].
+            # Preserve the true token separately and use a cache-resolvable name in
+            # generated smoke/pilot info files.
+            copied["original_lidar_token"] = copied.get("lidar_token")
+            copied["lidar_token"] = f"sample_{sample_idx:04d}"
         filtered.append(copied)
     return filtered
 
@@ -129,11 +147,29 @@ def main() -> int:
     source_val_infos = load_infos(source_val)
     if args.sample_indices_path:
         manifest_path = Path(args.sample_indices_path).expanduser().resolve()
-        tokens, timestamps, token_to_index = load_manifest_keys(manifest_path)
-        train_infos = filter_by_manifest(source_train_infos, tokens, timestamps, token_to_index)[: args.train_samples]
-        val_infos = filter_by_manifest(source_val_infos, tokens, timestamps, token_to_index)[: args.val_samples]
+        tokens, timestamps, token_to_index, timestamp_to_index = load_manifest_keys(manifest_path)
+        train_infos = filter_by_manifest(
+            source_train_infos,
+            tokens,
+            timestamps,
+            token_to_index,
+            timestamp_to_index,
+        )[: args.train_samples]
+        val_infos = filter_by_manifest(
+            source_val_infos,
+            tokens,
+            timestamps,
+            token_to_index,
+            timestamp_to_index,
+        )[: args.val_samples]
         if not train_infos or not val_infos:
-            combined = filter_by_manifest(source_train_infos + source_val_infos, tokens, timestamps, token_to_index)
+            combined = filter_by_manifest(
+                source_train_infos + source_val_infos,
+                tokens,
+                timestamps,
+                token_to_index,
+                timestamp_to_index,
+            )
             train_infos = combined[: args.train_samples]
             val_start = min(len(train_infos), len(combined))
             val_infos = combined[val_start : val_start + args.val_samples]

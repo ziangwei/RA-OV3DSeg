@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POINTCEPT_DIR="${PROJECT_ROOT}/third_party/Pointcept"
-LOG_DIR="${PROJECT_ROOT}/outputs/logs"
+LOG_DIR="${LOG_DIR:-${PROJECT_ROOT}/outputs/logs}"
 POINTCEPT_OUT_DIR="${PROJECT_ROOT}/outputs/pointcept"
 CHECKPOINT_DIR="${PROJECT_ROOT}/outputs/checkpoints"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-train_reliability_distillation}"

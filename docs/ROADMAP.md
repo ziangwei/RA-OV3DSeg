@@ -15,12 +15,13 @@ component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Next Stage 4 experiment: run a 128-cache pilot threshold sweep before spending
-full teacher-cache cost. The reliability-distillation smoke path has passed,
-so the next question is whether thresholded distillation has directional signal
-on the cached subset. Run `[0.0, 0.3, 0.5, 0.7, 0.9]` on the same cached
-train/val subset, treat the result as a pilot rather than the final Stage 4
-gate, then decide whether to generate a larger or full train cache.
+Next Stage 4 experiment: rerun the 128-cache pilot threshold sweep through
+`scripts/pilot_reliability_threshold_sweep.sh`. The runner rebuilds a
+cache-checked Pointcept subset, overwrites prior pilot outputs by default,
+hides long Pointcept logs in `outputs/logs/reliability_pilot/`, and prints a
+short summary table plus a final RunConclusion. Treat the pilot as a direction
+check, not the final Stage 4 gate; only generate a larger/full train cache if
+the pilot shows useful threshold signal.
 
 Server discovery commands:
 
@@ -102,6 +103,11 @@ Server environment target observed during Phase 0:
   diagnostic samples. Full train-split ablations require a larger/full cache;
   using the 128 cache with full train data would either fail in strict mode or
   silently reduce distillation to a tiny fraction of batches in non-strict mode.
+- Pilot runner adjustment: generated subset info files now rewrite Pointcept's
+  `lidar_token`/`name` to `sample_XXXX`, so reliability lookup uses explicit
+  sample ids instead of fragile coordinate fingerprints. The runner preflights
+  cache coverage before training and redirects verbose Pointcept output away
+  from tmux.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
