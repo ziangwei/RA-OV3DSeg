@@ -13,9 +13,12 @@ other action.
 - Only three docs/* files are allowed: ROADMAP.md, EXPERIMENT_RECAP.md,
   INTERVIEW_PREP.md.
 - No `*_PLAN.md`, `*_STATUS.md`, `*_NOTES.md`, `*_TODO.md`.
-- New ideas go to `docs/ROADMAP.md`. Results go to
-  `docs/EXPERIMENT_RECAP.md` via `RunConclusion.append_to_recap()`.
-  Narrative goes to `docs/INTERVIEW_PREP.md`.
+- New ideas go to `docs/ROADMAP.md`. Accepted/checkpoint results go to
+  `docs/EXPERIMENT_RECAP.md`; routine server runs default to the gitignored
+  `outputs/run_conclusions/EXPERIMENT_RECAP.local.md` through
+  `RunConclusion.append_to_recap()` so experiments do not dirty tracked docs.
+  Set `RA_OV3DSEG_RECAP_MODE=tracked` only when intentionally updating the
+  tracked recap. Narrative goes to `docs/INTERVIEW_PREP.md`.
 - `EXECUTION_PLAN.md` is read-only except for Section 11 checkboxes.
 
 ## Script Naming

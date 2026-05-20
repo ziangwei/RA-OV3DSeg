@@ -9,6 +9,7 @@ below via `RunConclusion.append_to_recap()`.
 | Date | Stage | Experiment | Status | Primary Metric | Notes |
 |---|---|---|---|---|---|
 | 2026-05-14 | stage-baseline | eval_baseline_fast | success | val_miou=0.7432 | fast validation via Pointcept SemSegEvaluator; skips PreciseEvaluator |
+| 2026-05-20 | stage-ov-head | train_ov_head | success | val_miou=0.7465 | frozen-backbone SigLIP prototype head; final eval mIoU=0.7449 |
 
 ## Carryover Knowledge From Prototype Phase
 
