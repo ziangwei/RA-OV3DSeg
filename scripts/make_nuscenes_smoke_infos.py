@@ -122,8 +122,8 @@ def filter_by_manifest(
         if sample_idx is not None:
             copied["sample_idx"] = sample_idx
             # Pointcept NuScenesDataset exposes only lidar_token as data_dict["name"].
-            # Preserve the true token separately and use a cache-resolvable name in
-            # generated smoke/pilot info files.
+            # Preserve the true token separately and use a cache-resolvable
+            # sample_<idx> name in generated smoke/pilot info files.
             copied["original_lidar_token"] = copied.get("lidar_token")
             copied["lidar_token"] = f"sample_{sample_idx:04d}"
         filtered.append(copied)

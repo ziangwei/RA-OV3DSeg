@@ -78,7 +78,7 @@ class ReliabilityTeacherCache:
     """Load Stage 4 reliability weights and Stage 3 dense teacher logits.
 
     The cache is keyed by the project sample index file naming convention
-    (`sample_XXXX_*`) and, when available, by nuScenes sample token. A coordinate
+    (`sample_<idx>_*`) and, when available, by nuScenes sample token. A coordinate
     fingerprint fallback exists only for diagnostics when Pointcept does not
     expose an index or token in its data dict.
     """
@@ -186,7 +186,14 @@ class ReliabilityTeacherCache:
     @staticmethod
     def _candidate_sample_indices(data_dict: dict[str, Any]) -> list[int]:
         candidates: list[int] = []
-        for key in ("sample_idx", "sample_index", "index", "idx"):
+        for key in ("name", "sample_name"):
+            value = _scalar_to_str(data_dict.get(key))
+            if value is None:
+                continue
+            match = re.fullmatch(r"sample_(\d+)", value)
+            if match:
+                candidates.append(int(match.group(1)))
+        for key in ("sample_idx", "sample_index"):
             value = _scalar_to_int(data_dict.get(key))
             if value is not None:
                 candidates.append(value)
