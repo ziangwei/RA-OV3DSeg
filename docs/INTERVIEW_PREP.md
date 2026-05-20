@@ -21,6 +21,7 @@ future work.
 | Decision | Chose | Rejected | Why |
 |---|---|---|---|
 | 3D backbone choice | Pointcept SpUNet v1m1 | Self-written Cylinder3D-style backbone; vendored partial SpUNet adapter | The prototype showed that sparse-conv recipe details dominate quality. Pointcept gives a mature published recipe, stable checkpoint format, and reproducible 70+ mIoU without maintaining a second backbone. |
+| Stage 4 threshold scale | Rank-calibrated reliability weights for threshold ablation, while preserving raw multiplicative weights | Lowering the fixed threshold grid to match raw scores | The raw product is useful diagnostically but lives around 0.0-0.2 on the 128-sample cache, so the fixed [0.3, 0.5, 0.7, 0.9] grid would zero out supervision. Rank calibration keeps the planned grid meaningful without lowering the gates. |
 
 ## Headline Results
 
@@ -30,6 +31,7 @@ future work.
 | Text-aligned OV head closed-set drop | -0.0033 | best mIoU 0.7465 vs Stage 1 0.7432 |
 | SAM2+SigLIP teacher projected mIoU | 0.1022 | 128-sample official16 diagnostic; coverage 0.5578 |
 | SAM2+SigLIP semantic top-confidence mIoU | 0.3149 / 0.3159 | top-20% / top-40% after excluding background/ignore from ranking |
+| Rank-calibrated reliability cache | mean 0.4990 | 128 samples; high>=0.5 ratio 0.4990; semantic score ratio 0.4196 |
 | Best reliability threshold | TBD | from ablation |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 

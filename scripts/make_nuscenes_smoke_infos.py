@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pickle
 from pathlib import Path
+from typing import Any
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,6 +17,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_sweeps", default=1, type=int)
     parser.add_argument("--train_samples", default=8, type=int)
     parser.add_argument("--val_samples", default=4, type=int)
+    parser.add_argument(
+        "--sample_indices_path",
+        default=None,
+        type=str,
+        help="Optional Stage 3/4 JSON manifest with samples[].sample_token; filters smoke infos to cached samples.",
+    )
     return parser
 
 
@@ -27,6 +35,81 @@ def dump_infos(path: Path, infos) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         pickle.dump(infos, f)
+
+
+def scalar_to_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    if isinstance(value, (str, int)):
+        return str(value)
+    return None
+
+
+def info_token(info: dict[str, Any]) -> str | None:
+    for key in ("sample_token", "token"):
+        value = scalar_to_str(info.get(key))
+        if value:
+            return value
+    return None
+
+
+def info_timestamp(info: dict[str, Any]) -> int | None:
+    for key in ("timestamp", "lidar_timestamp"):
+        value = info.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tokens = {
+        str(item["sample_token"])
+        for item in data.get("samples", [])
+        if isinstance(item, dict) and item.get("sample_token") is not None
+    }
+    timestamps = {
+        int(item["timestamp"])
+        for item in data.get("samples", [])
+        if isinstance(item, dict) and item.get("timestamp") is not None
+    }
+    token_to_index = {
+        str(item["sample_token"]): int(item["sample_idx"])
+        for item in data.get("samples", [])
+        if isinstance(item, dict)
+        and item.get("sample_token") is not None
+        and item.get("sample_idx") is not None
+    }
+    if not tokens and not timestamps:
+        raise ValueError(f"No samples[].sample_token or samples[].timestamp entries found in {path}")
+    return tokens, timestamps, token_to_index
+
+
+def filter_by_manifest(
+    infos: list[dict[str, Any]],
+    tokens: set[str],
+    timestamps: set[int],
+    token_to_index: dict[str, int],
+) -> list[dict[str, Any]]:
+    filtered = []
+    for info in infos:
+        token = info_token(info)
+        timestamp = info_timestamp(info)
+        if token not in tokens and timestamp not in timestamps:
+            continue
+        copied = dict(info)
+        if token:
+            copied["sample_token"] = token
+            if token in token_to_index:
+                copied["sample_idx"] = token_to_index[token]
+        filtered.append(copied)
+    return filtered
 
 
 def main() -> int:
@@ -42,8 +125,21 @@ def main() -> int:
     if not source_val.exists():
         raise FileNotFoundError(f"val info not found: {source_val}")
 
-    train_infos = load_infos(source_train)[: args.train_samples]
-    val_infos = load_infos(source_val)[: args.val_samples]
+    source_train_infos = load_infos(source_train)
+    source_val_infos = load_infos(source_val)
+    if args.sample_indices_path:
+        manifest_path = Path(args.sample_indices_path).expanduser().resolve()
+        tokens, timestamps, token_to_index = load_manifest_keys(manifest_path)
+        train_infos = filter_by_manifest(source_train_infos, tokens, timestamps, token_to_index)[: args.train_samples]
+        val_infos = filter_by_manifest(source_val_infos, tokens, timestamps, token_to_index)[: args.val_samples]
+        if not train_infos or not val_infos:
+            combined = filter_by_manifest(source_train_infos + source_val_infos, tokens, timestamps, token_to_index)
+            train_infos = combined[: args.train_samples]
+            val_start = min(len(train_infos), len(combined))
+            val_infos = combined[val_start : val_start + args.val_samples]
+    else:
+        train_infos = source_train_infos[: args.train_samples]
+        val_infos = source_val_infos[: args.val_samples]
     if not train_infos:
         raise RuntimeError(f"No train infos loaded from {source_train}")
     if not val_infos:

@@ -9,6 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ra_ov3dseg.training.losses import dense_logit_distillation_loss
+
 
 def load_text_prototypes(path: str | Path) -> dict[str, Any]:
     path = Path(path).expanduser().resolve()
@@ -100,6 +102,19 @@ def load_pointcept_backbone_weights(backbone: nn.Module, checkpoint_path: str | 
     return list(load_info.missing_keys), list(load_info.unexpected_keys)
 
 
+def load_segmentor_weights(model: nn.Module, checkpoint_path: str | Path) -> tuple[list[str], list[str]]:
+    """Load a full RAOVHeadSegmentor checkpoint, including the text head."""
+
+    checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    normalized_state: OrderedDict[str, torch.Tensor] = OrderedDict()
+    for key, value in state_dict.items():
+        normalized_state[_strip_prefix(key, "module.")] = value
+    load_info = model.load_state_dict(normalized_state, strict=False)
+    return list(load_info.missing_keys), list(load_info.unexpected_keys)
+
+
 try:
     from pointcept.models.builder import MODELS, build_model
     from pointcept.models.losses import build_criteria
@@ -124,6 +139,7 @@ class PointceptOVHeadSegmentor(nn.Module):
         freeze_backbone: bool = True,
         force_fp32_backbone: bool = True,
         backbone_weight_path: str | None = None,
+        model_weight_path: str | None = None,
     ) -> None:
         super().__init__()
         if build_model is None or build_criteria is None:
@@ -159,6 +175,14 @@ class PointceptOVHeadSegmentor(nn.Module):
                     f"missing={disallowed_missing}, unexpected={unexpected}"
                 )
 
+        if model_weight_path:
+            missing, unexpected = load_segmentor_weights(self, model_weight_path)
+            if missing or unexpected:
+                raise RuntimeError(
+                    "Stage 2 OV head checkpoint load mismatch: "
+                    f"missing={missing}, unexpected={unexpected}"
+                )
+
         if self.freeze_backbone:
             for param in self.backbone.parameters():
                 param.requires_grad = False
@@ -180,13 +204,7 @@ class PointceptOVHeadSegmentor(nn.Module):
         return self.backbone(backbone_input).float()
 
     def forward(self, input_dict: dict[str, Any]) -> dict[str, torch.Tensor]:
-        if self.freeze_backbone:
-            with torch.no_grad():
-                point_features = self._run_backbone(input_dict)
-        else:
-            point_features = self._run_backbone(input_dict)
-
-        seg_logits = self.ov_head(point_features)
+        seg_logits = self.forward_logits(input_dict)
         return_dict: dict[str, torch.Tensor] = {"seg_logits": seg_logits}
         if "segment" in input_dict:
             loss = self.criteria(seg_logits, input_dict["segment"])
@@ -195,6 +213,133 @@ class PointceptOVHeadSegmentor(nn.Module):
             return_dict["loss"] = loss
         return return_dict
 
+    def forward_logits(self, input_dict: dict[str, Any]) -> torch.Tensor:
+        if self.freeze_backbone:
+            with torch.no_grad():
+                point_features = self._run_backbone(input_dict)
+        else:
+            point_features = self._run_backbone(input_dict)
+        return self.ov_head(point_features)
+
+
+class PointceptOVReliabilitySegmentor(PointceptOVHeadSegmentor):
+    """Pointcept-compatible OV segmentor with reliability-weighted teacher KL."""
+
+    def __init__(
+        self,
+        *args: Any,
+        ce_loss_weight: float = 1.0,
+        distill_loss_weight: float = 1.0,
+        distill_temperature: float = 2.0,
+        reliability_threshold: float = 0.5,
+        require_teacher: bool = True,
+        teacher_logits_key: str = "teacher_logits",
+        teacher_valid_mask_key: str = "teacher_valid_mask",
+        reliability_weight_key: str = "reliability_weight",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.ce_loss_weight = float(ce_loss_weight)
+        self.distill_loss_weight = float(distill_loss_weight)
+        self.distill_temperature = float(distill_temperature)
+        self.reliability_threshold = float(reliability_threshold)
+        self.require_teacher = bool(require_teacher)
+        self.teacher_logits_key = teacher_logits_key
+        self.teacher_valid_mask_key = teacher_valid_mask_key
+        self.reliability_weight_key = reliability_weight_key
+        self._logged_distill_stats = False
+
+    def _has_teacher(self, input_dict: dict[str, Any]) -> bool:
+        return self.teacher_logits_key in input_dict and self.reliability_weight_key in input_dict
+
+    @staticmethod
+    def _as_tensor(value: Any, device: torch.device) -> torch.Tensor:
+        if torch.is_tensor(value):
+            return value.to(device=device)
+        return torch.as_tensor(value, device=device)
+
+    def _distillation_loss(
+        self,
+        seg_logits: torch.Tensor,
+        input_dict: dict[str, Any],
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        if not self._has_teacher(input_dict):
+            if self.require_teacher:
+                raise KeyError(
+                    "Reliability distillation requires teacher fields in the Pointcept batch: "
+                    f"{self.teacher_logits_key}, {self.reliability_weight_key}. "
+                    "Check the RALoadReliabilityTeacher transform and Collect keys."
+                )
+            return seg_logits.sum() * 0.0, {"valid_ratio": 0.0, "mean_weight": 0.0}
+
+        device = seg_logits.device
+        teacher_logits = self._as_tensor(input_dict[self.teacher_logits_key], device=device).float()
+        weights = self._as_tensor(input_dict[self.reliability_weight_key], device=device).float()
+        if self.teacher_valid_mask_key in input_dict:
+            valid_mask = self._as_tensor(input_dict[self.teacher_valid_mask_key], device=device).bool()
+        else:
+            valid_mask = torch.ones(weights.shape, dtype=torch.bool, device=device)
+
+        if teacher_logits.ndim != 2:
+            raise ValueError(f"teacher_logits must be rank-2, got shape={tuple(teacher_logits.shape)}")
+        if teacher_logits.shape[0] != seg_logits.shape[0]:
+            raise ValueError(
+                f"teacher/student point count mismatch: teacher={teacher_logits.shape[0]}, student={seg_logits.shape[0]}"
+            )
+        if teacher_logits.shape[1] > seg_logits.shape[1]:
+            teacher_logits = teacher_logits[:, : seg_logits.shape[1]]
+        elif teacher_logits.shape[1] < seg_logits.shape[1]:
+            raise ValueError(
+                f"teacher class count {teacher_logits.shape[1]} is smaller than student class count {seg_logits.shape[1]}"
+            )
+
+        weights = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
+        threshold_mask = weights >= self.reliability_threshold
+        valid_mask = valid_mask & threshold_mask
+        thresholded_weights = torch.where(threshold_mask, weights, torch.zeros_like(weights))
+        loss = dense_logit_distillation_loss(
+            student_logits=seg_logits,
+            teacher_logits=teacher_logits,
+            weights=thresholded_weights,
+            valid_mask=valid_mask,
+            temperature=self.distill_temperature,
+        )
+        valid_points = valid_mask.sum().item()
+        total_points = max(int(valid_mask.numel()), 1)
+        mean_weight = (
+            float(thresholded_weights[valid_mask].mean().detach().cpu().item()) if valid_points else 0.0
+        )
+        return loss, {
+            "valid_ratio": float(valid_points / total_points),
+            "mean_weight": mean_weight,
+        }
+
+    def forward(self, input_dict: dict[str, Any]) -> dict[str, torch.Tensor]:
+        seg_logits = self.forward_logits(input_dict)
+        return_dict: dict[str, torch.Tensor] = {"seg_logits": seg_logits}
+        if "segment" not in input_dict:
+            return return_dict
+
+        ce_loss = self.criteria(seg_logits, input_dict["segment"])
+        if not self.training:
+            return_dict["loss"] = ce_loss
+            return return_dict
+
+        distill_loss, stats = self._distillation_loss(seg_logits, input_dict)
+        loss = self.ce_loss_weight * ce_loss + self.distill_loss_weight * distill_loss
+        if not self._logged_distill_stats:
+            print(
+                "[RAOVReliabilitySegmentor] "
+                f"threshold={self.reliability_threshold:.3f} "
+                f"distill_valid_ratio={stats['valid_ratio']:.4f} "
+                f"distill_mean_weight={stats['mean_weight']:.4f} "
+                f"ce_weight={self.ce_loss_weight:.3f} "
+                f"distill_weight={self.distill_loss_weight:.3f}"
+            )
+            self._logged_distill_stats = True
+        return {"loss": loss}
+
 
 if MODELS is not None:
     MODELS.register_module("RAOVHeadSegmentor")(PointceptOVHeadSegmentor)
+    MODELS.register_module("RAOVReliabilitySegmentor")(PointceptOVReliabilitySegmentor)

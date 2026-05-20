@@ -15,12 +15,12 @@ component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Next Stage 4 experiment: align the reliability pipeline with the SAM2+SigLIP
-teacher before launching full ablations. Reliability inputs should use
-projected dense teacher point logits, semantic confidence with
-background/ignore excluded from semantic ranking, projection geometry, and
-distance weighting. Start with a small smoke run, then run the threshold
-ablation `[0.0, 0.3, 0.5, 0.7, 0.9]`.
+Next Stage 4 experiment: run the reliability-distillation smoke training path
+against the 128-sample rank-calibrated cache before launching full ablations.
+The smoke run must verify that Pointcept batches receive aligned
+`teacher_logits`, `teacher_valid_mask`, and `reliability_weight`, and that the
+first forward pass reports a non-zero `distill_valid_ratio`. If it passes, run
+the threshold ablation `[0.0, 0.3, 0.5, 0.7, 0.9]`.
 
 Server discovery commands:
 
@@ -85,6 +85,14 @@ Server environment target observed during Phase 0:
 - Adjustment: keep the raw multiplicative product as `reliability_weight_raw`,
   and use rank-calibrated `reliability_weight` in [0, 1] for threshold
   ablations. This preserves the planned threshold grid without lowering gates.
+- Rank-calibrated retry result: 128 summaries and 128 npz files matched;
+  semantic_score_ratio mean stayed 0.4196; reliability mean was 0.4990;
+  high_reliability_ratio mean at threshold 0.5 was 0.4990; quantiles were
+  [0.0000, 0.2486, 0.4991, 0.7496, 0.8999, 0.9500, 0.9900, 1.0000].
+- Training wiring added: `scripts/train_reliability_distillation.sh` loads
+  the Stage 2 OV head checkpoint, injects reliability teacher fields through a
+  Pointcept transform, slices SAM2+SigLIP's appended background class away, and
+  applies reliability-weighted dense KL alongside supervised CE.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
