@@ -1156,12 +1156,12 @@ this list at each check-in.
 ### Stage 2 — OV Head Replacement
 - [x] Branch `stage-2-ov-head` created
 - [x] `ra_ov3dseg/models/ov_head.py` implemented
-- [ ] Text prototype matrix cached
-- [ ] Short fine-tune completed (backbone frozen)
-- [ ] `outputs/checkpoints/ov_head_aligned.pt` produced
-- [ ] Gate: drop ≤ 0.08 vs Stage 1
-- [ ] EXPERIMENT_RECAP updated
-- [ ] INTERVIEW_PREP updated
+- [x] Text prototype matrix cached
+- [x] Short fine-tune completed (backbone frozen)
+- [x] `outputs/checkpoints/ov_head_aligned.pt` produced
+- [x] Gate: drop ≤ 0.08 vs Stage 1
+- [x] EXPERIMENT_RECAP updated
+- [x] INTERVIEW_PREP updated
 - [ ] `stage2-ov-head-complete` tag
 
 ### Stage 3 — SAM2 + SigLIP Teacher

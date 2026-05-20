@@ -232,6 +232,10 @@ metric_values: list[float] = []
 for line in text.splitlines():
     match = re.search(r"(?:^|\s)mIoU\s+([-+]?(?:\d*\.\d+|\d+))", line)
     if match is None:
+        match = re.search(r"Val result:\s*mIoU/mAcc/allAcc\s+([-+]?(?:\d*\.\d+|\d+))", line)
+    if match is None:
+        match = re.search(r"Best mIoU:\s*([-+]?(?:\d*\.\d+|\d+))", line)
+    if match is None:
         continue
     value = float(match.group(1))
     if value > 1.0 and value <= 100.0:

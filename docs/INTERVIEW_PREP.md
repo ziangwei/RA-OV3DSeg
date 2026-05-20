@@ -27,7 +27,7 @@ future work.
 | Metric | Value | Context |
 |---|---|---|
 | Closed-set val mIoU (Pointcept SpUNet) | 0.7432 | full nuScenes-lidarseg val, fast Pointcept SemSegEvaluator |
-| Text-aligned OV head closed-set drop | TBD | vs closed-set baseline |
+| Text-aligned OV head closed-set drop | -0.0033 | best mIoU 0.7465 vs Stage 1 0.7432 |
 | SAM2+SigLIP teacher projected mIoU | TBD | on diagnostic split |
 | Best reliability threshold | TBD | from ablation |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
