@@ -76,6 +76,9 @@ Server environment target observed during Phase 0:
 - Next check: run a one-sample server diagnostic with
   `scripts/extract_sam2_teacher.py`, then project and evaluate the resulting
   point pseudo-labels.
+- Teacher environment: use a separate `ra-teacher` env with PyTorch/TorchVision
+  2.5/0.20 and `requirements-teacher.txt`; keep the Pointcept training env on
+  its validated torch/spconv stack.
 
 ### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while

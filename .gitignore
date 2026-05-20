@@ -28,6 +28,7 @@ checkpoints/
 
 # Pointcept lives inside the repo but is not part of our git history
 third_party/Pointcept/
+third_party/sam2/
 
 # Data
 data/
