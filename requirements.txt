@@ -4,9 +4,11 @@ opencv-python-headless==4.8.1.78
 nuscenes-devkit==1.1.11
 transformers==4.46.0
 open-clip-torch==2.24.0
+open3d
 ftfy
 pyyaml
 matplotlib
 tqdm
 Pillow
-# Stage 3 will add: segment-anything-2, etc. (add via append, do not regenerate)
+# SAM2 is intentionally not pinned here: the official package currently wants
+# torch>=2.5.1 and can upgrade the Pointcept torch==2.1.x environment.

@@ -16,10 +16,10 @@ Section 6.
 
 ## Next Experiment
 
-Next Stage 3 experiment: implement a SAM2 + SigLIP teacher wrapper and run a
-diagnostic extraction/evaluation on a small nuScenes subset. The gate is
-projected teacher mIoU >= 0.10; if the teacher remains weak, record the pivot
-decision before Stage 4.
+Next Stage 3 experiment: run the SAM2 + SigLIP teacher diagnostic chain on a
+small nuScenes subset: projection, teacher extraction, point assignment, and
+official-16 pseudo-label evaluation. The gate is projected teacher mIoU >=
+0.10; if the teacher remains weak, record the pivot decision before Stage 4.
 
 Server discovery commands:
 
@@ -73,8 +73,9 @@ Server environment target observed during Phase 0:
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
   SigLIP text prototypes, then project them to LiDAR points.
 - Status: branch created on 2026-05-20.
-- Next check: inspect current projection and dense-teacher utilities, add SAM2
-  dependency path, and implement a small diagnostic extraction script.
+- Next check: run a one-sample server diagnostic with
+  `scripts/extract_sam2_teacher.py`, then project and evaluate the resulting
+  point pseudo-labels.
 
 ### stage-ov-head (complete)
 - Goal: replace the closed-set head with a SigLIP prototype cosine head while

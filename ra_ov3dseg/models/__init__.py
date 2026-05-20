@@ -14,9 +14,11 @@ __all__ = [
     "describe_backbone",
     "CLIPSEG_DENSE",
     "GROUPVIT_DENSE",
+    "SAM2_SIGLIP",
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",
+    "SAM2SigLIPTeacher",
     "PointceptOVHeadSegmentor",
     "TextPrototypeHead",
     "load_pointcept_backbone_weights",
@@ -33,10 +35,12 @@ _SEGMENTOR_EXPORTS = {
 _TEACHER_EXPORTS = {
     "CLIPSEG_DENSE",
     "GROUPVIT_DENSE",
+    "SAM2_SIGLIP",
     "SUPPORTED_TEACHERS",
     "build_image_teacher",
     "describe_teacher",
 }
+_SAM2_TEACHER_EXPORTS = {"SAM2SigLIPTeacher"}
 _OV_HEAD_EXPORTS = {
     "PointceptOVHeadSegmentor",
     "TextPrototypeHead",
@@ -52,6 +56,9 @@ def __getattr__(name: str):
     if name in _TEACHER_EXPORTS:
         teacher_registry = import_module(f"{__name__}.teacher_registry")
         return getattr(teacher_registry, name)
+    if name in _SAM2_TEACHER_EXPORTS:
+        sam2_siglip_teacher = import_module(f"{__name__}.sam2_siglip_teacher")
+        return getattr(sam2_siglip_teacher, name)
     if name in _OV_HEAD_EXPORTS:
         ov_head = import_module(f"{__name__}.ov_head")
         return getattr(ov_head, name)

@@ -1166,8 +1166,8 @@ this list at each check-in.
 
 ### Stage 3 — SAM2 + SigLIP Teacher
 - [x] Branch `stage-3-teacher` created
-- [ ] `ra_ov3dseg/models/sam2_siglip_teacher.py` implemented
-- [ ] `scripts/extract_sam2_teacher.py` implemented
+- [x] `ra_ov3dseg/models/sam2_siglip_teacher.py` implemented
+- [x] `scripts/extract_sam2_teacher.py` implemented
 - [ ] Teacher cache produced for diagnostic split
 - [ ] Teacher comparison table populated
 - [ ] Gate: projected mIoU ≥ 0.10 (or pivot decision recorded)

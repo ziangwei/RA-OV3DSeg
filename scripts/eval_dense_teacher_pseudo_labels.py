@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +19,15 @@ from ra_ov3dseg.evaluation.metrics import (  # noqa: E402
     safe_iou,
     segmentation_intersections_unions,
 )
-from ra_ov3dseg.training.labels import build_class_split  # noqa: E402
+from ra_ov3dseg.training.labels import (  # noqa: E402
+    NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES,
+    build_class_split,
+    map_official_16_for_ce,
+    map_raw_lidarseg_to_official_16,
+)
 from ra_ov3dseg.utils.io import ensure_dir, save_json, save_npz  # noqa: E402
 from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
+from ra_ov3dseg.utils.run_conclusion import RunConclusion  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dense_point_dir", default="outputs/dense_point_logits", type=str)
     parser.add_argument("--class_names_path", default="configs/nuscenes_lidarseg_class_names.txt", type=str)
     parser.add_argument("--split_config", default="configs/base_novel_split.yaml", type=str)
+    parser.add_argument(
+        "--label_space",
+        default="raw32",
+        choices=["raw32", "official16"],
+        help="raw32 evaluates raw labels; official16 evaluates merged official lidarseg classes.",
+    )
     parser.add_argument("--output_dir", default="outputs/teacher_quality", type=str)
     parser.add_argument("--skip_existing", action="store_true")
     return parser
@@ -147,14 +160,25 @@ def summarize_metrics(
 
 
 def main() -> int:
+    start_time = time.monotonic()
     args = build_parser().parse_args()
     logger = setup_logger("eval_dense_teacher_pseudo_labels")
     output_dir = ensure_dir(args.output_dir)
     dataset = NuScenesDataset(args.dataroot, version=args.version, verbose=True)
-    class_split = build_class_split(args.class_names_path, args.split_config)
+    if args.label_space == "official16":
+        class_names = list(NUSCENES_LIDARSEG_OFFICIAL_CLASS_NAMES[1:]) + ["background"]
+        base_label_ids = np.arange(16, dtype=np.int64)
+        novel_label_ids = np.asarray([], dtype=np.int64)
+        ignore_label_ids = np.asarray([16], dtype=np.int64)
+    else:
+        class_split = build_class_split(args.class_names_path, args.split_config)
+        class_names = class_split.class_names
+        base_label_ids = class_split.base_label_ids
+        novel_label_ids = class_split.novel_label_ids
+        ignore_label_ids = class_split.ignore_label_ids
     jobs = build_jobs(args, dataset)
 
-    num_classes = class_split.num_classes
+    num_classes = len(class_names)
     total_intersections = np.zeros(num_classes, dtype=np.int64)
     total_unions = np.zeros(num_classes, dtype=np.int64)
     total_gt_counts = np.zeros(num_classes, dtype=np.int64)
@@ -187,6 +211,8 @@ def main() -> int:
         gt = dataset.load_lidarseg_labels(sample)
         if gt is None:
             raise FileNotFoundError(f"lidarseg labels not found for sample_idx={sample_idx}")
+        if args.label_space == "official16":
+            gt = map_official_16_for_ce(map_raw_lidarseg_to_official_16(gt), ignore_index=-1)
         dense_data = load_npz(dense_point_npz)
         pred, teacher_valid_mask = teacher_predictions(dense_data, num_classes=num_classes)
         if pred.shape[0] != gt.shape[0]:
@@ -195,10 +221,10 @@ def main() -> int:
         metrics, arrays = summarize_metrics(
             pred=pred,
             gt=gt.astype(np.int64),
-            class_names=class_split.class_names,
-            base_ids=class_split.base_label_ids,
-            novel_ids=class_split.novel_label_ids,
-            ignore_ids=class_split.ignore_label_ids,
+            class_names=class_names,
+            base_ids=base_label_ids,
+            novel_ids=novel_label_ids,
+            ignore_ids=ignore_label_ids,
         )
         total_intersections += arrays["intersections"].astype(np.int64)
         total_unions += arrays["unions"].astype(np.int64)
@@ -214,10 +240,10 @@ def main() -> int:
             sample_token=np.asarray(sample["token"]),
             pred_label_indices=pred.astype(np.int32),
             teacher_valid_mask=teacher_valid_mask.astype(bool),
-            class_names=np.asarray(class_split.class_names),
-            base_label_ids=class_split.base_label_ids,
-            novel_label_ids=class_split.novel_label_ids,
-            ignore_label_ids=class_split.ignore_label_ids,
+            class_names=np.asarray(class_names),
+            base_label_ids=base_label_ids,
+            novel_label_ids=novel_label_ids,
+            ignore_label_ids=ignore_label_ids,
             num_points=np.asarray(gt.shape[0], dtype=np.int64),
             num_valid_pred_points=np.asarray(metrics["num_valid_pred_points"], dtype=np.int64),
             **arrays,
@@ -242,31 +268,31 @@ def main() -> int:
     aggregate_metrics, _ = summarize_metrics(
         pred=np.zeros((0,), dtype=np.int64),
         gt=np.zeros((0,), dtype=np.int64),
-        class_names=class_split.class_names,
-        base_ids=class_split.base_label_ids,
-        novel_ids=class_split.novel_label_ids,
-        ignore_ids=class_split.ignore_label_ids,
+        class_names=class_names,
+        base_ids=base_label_ids,
+        novel_ids=novel_label_ids,
+        ignore_ids=ignore_label_ids,
     )
     aggregate_ious = safe_iou(total_intersections, total_unions)
     eval_class_ids = np.asarray(
-        sorted(set(class_split.base_label_ids.tolist()) | set(class_split.novel_label_ids.tolist())), dtype=np.int64
+        sorted(set(base_label_ids.tolist()) | set(novel_label_ids.tolist())), dtype=np.int64
     )
     aggregate_metrics.update(
         {
             "all_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, eval_class_ids)),
-            "base_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, class_split.base_label_ids)),
-            "novel_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, class_split.novel_label_ids)),
-            "ignore_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, class_split.ignore_label_ids)),
+            "base_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, base_label_ids)),
+            "novel_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, novel_label_ids)),
+            "ignore_miou": finite_or_none(mean_iou_for_ids(aggregate_ious, ignore_label_ids)),
             "num_points": int(total_points),
             "num_valid_pred_points": int(total_valid_pred_points),
             "prediction_coverage": float(total_valid_pred_points / max(total_points, 1)),
         }
     )
-    base_set = set(class_split.base_label_ids.tolist())
-    novel_set = set(class_split.novel_label_ids.tolist())
-    ignore_set = set(class_split.ignore_label_ids.tolist())
+    base_set = set(base_label_ids.tolist())
+    novel_set = set(novel_label_ids.tolist())
+    ignore_set = set(ignore_label_ids.tolist())
     aggregate_metrics["per_class"] = []
-    for class_id, class_name in enumerate(class_split.class_names):
+    for class_id, class_name in enumerate(class_names):
         if class_id in base_set:
             split = "base"
         elif class_id in novel_set:
@@ -292,21 +318,22 @@ def main() -> int:
     batch_summary_json = output_dir / "batch_teacher_pseudo_eval_summary.json"
     save_npz(
         batch_eval_npz,
-        class_names=np.asarray(class_split.class_names),
+        class_names=np.asarray(class_names),
         intersections=total_intersections,
         unions=total_unions,
         gt_counts=total_gt_counts,
         pred_counts=total_pred_counts,
         ious=aggregate_ious.astype(np.float32),
         confusion_matrix=total_confusion,
-        base_label_ids=class_split.base_label_ids,
-        novel_label_ids=class_split.novel_label_ids,
-        ignore_label_ids=class_split.ignore_label_ids,
+        base_label_ids=base_label_ids,
+        novel_label_ids=novel_label_ids,
+        ignore_label_ids=ignore_label_ids,
     )
     save_json(
         batch_summary_json,
         {
             "version": args.version,
+            "label_space": args.label_space,
             "num_samples": len(jobs),
             "outputs": outputs,
             "aggregate_metrics": aggregate_metrics,
@@ -320,6 +347,30 @@ def main() -> int:
         aggregate_metrics["base_miou"],
         aggregate_metrics["novel_miou"],
     )
+    primary = aggregate_metrics["all_miou"]
+    primary_value = float(primary) if primary is not None else 0.0
+    secondary = {}
+    for key in ("base_miou", "novel_miou", "prediction_coverage"):
+        value = aggregate_metrics.get(key)
+        if value is not None and np.isfinite(float(value)):
+            secondary[key] = float(value)
+    conclusion = RunConclusion(
+        stage="stage-teacher",
+        experiment="eval_dense_teacher_pseudo_labels",
+        status="success",
+        gate="projected teacher mIoU >= 0.10",
+        gate_passed=primary_value >= 0.10,
+        primary_metric_name="teacher_miou",
+        primary_metric_value=primary_value,
+        secondary=secondary,
+        runtime_seconds=time.monotonic() - start_time,
+        checkpoint=None,
+        artifacts=[str(batch_summary_json), str(batch_eval_npz)],
+        next_step="proceed to Stage 3 diagnostic review if gate passed",
+        notes=f"label_space={args.label_space}; samples={len(jobs)}",
+    )
+    conclusion.append_to_recap(Path("docs/EXPERIMENT_RECAP.md"))
+    conclusion.print_block()
     return 0
 
 

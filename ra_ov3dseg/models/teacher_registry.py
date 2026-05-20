@@ -5,9 +5,11 @@ from pathlib import Path
 
 CLIPSEG_DENSE = "clipseg_dense"
 GROUPVIT_DENSE = "groupvit_dense"
+SAM2_SIGLIP = "sam2_siglip"
 SUPPORTED_TEACHERS = (
     CLIPSEG_DENSE,
     GROUPVIT_DENSE,
+    SAM2_SIGLIP,
 )
 
 
@@ -46,6 +48,18 @@ def describe_teacher(teacher_backend: str) -> TeacherSpec:
             ),
         )
 
+    if teacher_backend == SAM2_SIGLIP:
+        return TeacherSpec(
+            name=teacher_backend,
+            role="mask_then_classify_dense_teacher",
+            feature_granularity="dense_class_logits",
+            is_baseline=False,
+            description=(
+                "SAM2 automatic masks classified by SigLIP text/image similarity. "
+                "This is the Stage 3 teacher candidate before reliability filtering."
+            ),
+        )
+
     raise ValueError(f"Unknown teacher_backend={teacher_backend}. Supported: {SUPPORTED_TEACHERS}")
 
 
@@ -69,5 +83,8 @@ def build_image_teacher(
             "groupvit_dense is a dense-logit teacher. Use scripts/extract_dense_teacher_logits.py "
             "or the Stage 3 SAM2+SigLIP teacher path."
         )
+
+    if teacher_backend == SAM2_SIGLIP:
+        raise NotImplementedError("sam2_siglip is built directly by scripts/extract_sam2_teacher.py.")
 
     raise ValueError(f"Unknown teacher_backend={teacher_backend}. Supported: {SUPPORTED_TEACHERS}")

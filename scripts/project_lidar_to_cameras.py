@@ -15,22 +15,22 @@ from ra_ov3dseg.utils.logger import setup_logger  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="将一个或多个 nuScenes LiDAR sample 投影到 6 个相机平面。")
-    parser.add_argument("--dataroot", required=True, type=str, help="nuScenes 数据根目录。")
-    parser.add_argument("--version", default="v1.0-mini", type=str, help="nuScenes 版本。")
-    parser.add_argument("--sample_idx", default=None, type=int, help="指定单个 sample 索引。")
-    parser.add_argument("--start_idx", default=0, type=int, help="批量投影时的起始 sample 索引。")
-    parser.add_argument("--max_samples", default=1, type=int, help="批量投影多少个 sample。")
+    parser = argparse.ArgumentParser(description="Project one or more nuScenes LiDAR samples to six camera planes.")
+    parser.add_argument("--dataroot", required=True, type=str, help="nuScenes data root.")
+    parser.add_argument("--version", default="v1.0-mini", type=str, help="nuScenes version.")
+    parser.add_argument("--sample_idx", default=None, type=int, help="Single sample index to project.")
+    parser.add_argument("--start_idx", default=0, type=int, help="First sample index for batch projection.")
+    parser.add_argument("--max_samples", default=1, type=int, help="Number of samples to project.")
     parser.add_argument(
         "--output_dir",
         default="outputs/projections",
         type=str,
-        help="投影结果输出目录。",
+        help="Projection output directory.",
     )
     parser.add_argument(
         "--skip_existing",
         action="store_true",
-        help="如果目标 .npz 和 summary 已存在，则跳过该 sample。",
+        help="Skip samples when both target .npz and summary files already exist.",
     )
     return parser
 
