@@ -12,6 +12,10 @@ from PIL import Image
 
 from ra_ov3dseg.utils.io import ensure_dir
 
+for _numpy_alias, _numpy_value in {"Inf": np.inf, "Infinity": np.inf, "NaN": np.nan}.items():
+    if not hasattr(np, _numpy_alias):
+        setattr(np, _numpy_alias, _numpy_value)
+
 
 def _prepare_overlay_points(
     uv: np.ndarray,
