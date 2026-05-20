@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache_dir", default=None, type=str)
     parser.add_argument("--local_files_only", action="store_true")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
-    parser.add_argument("--prompt_template", default="a photo of a {}", type=str)
+    parser.add_argument("--prompt_template", default="a street-scene image crop containing {}", type=str)
     parser.add_argument("--points_per_side", default=24, type=int)
     parser.add_argument("--points_per_batch", default=64, type=int)
     parser.add_argument("--pred_iou_thresh", default=0.80, type=float)

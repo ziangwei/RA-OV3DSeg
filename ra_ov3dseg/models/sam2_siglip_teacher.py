@@ -8,6 +8,25 @@ from PIL import Image
 
 from ra_ov3dseg.models.text_encoder import prettify_label_name, resolve_device
 
+NUSCENES_CLASS_PHRASES = {
+    "barrier": "a road barrier or concrete traffic barrier",
+    "bicycle": "a bicycle",
+    "bus": "a city bus",
+    "car": "a passenger car",
+    "construction_vehicle": "a construction vehicle such as an excavator, bulldozer, or crane",
+    "motorcycle": "a motorcycle",
+    "pedestrian": "a person or pedestrian",
+    "traffic_cone": "an orange traffic cone",
+    "trailer": "a truck trailer",
+    "truck": "a truck",
+    "driveable_surface": "the road surface or driving lane",
+    "other_flat": "flat ground beside the road",
+    "sidewalk": "a sidewalk or pedestrian walkway",
+    "terrain": "grass, dirt, or natural terrain beside the road",
+    "manmade": "a building, wall, pole, fence, or other man-made structure",
+    "vegetation": "trees, bushes, or vegetation",
+}
+
 
 def _normalize_torch(torch_module, tensor, eps: float = 1e-6):
     return tensor / torch_module.clamp(torch_module.linalg.norm(tensor, dim=-1, keepdim=True), min=eps)
@@ -114,7 +133,11 @@ class SAM2SigLIPTeacher:
         self.siglip.to(self.device)
 
     def build_prompts(self, class_names: list[str], prompt_template: str) -> list[str]:
-        return [prompt_template.format(prettify_label_name(class_name)) for class_name in class_names]
+        prompts = []
+        for class_name in class_names:
+            phrase = NUSCENES_CLASS_PHRASES.get(class_name, prettify_label_name(class_name))
+            prompts.append(prompt_template.format(phrase))
+        return prompts
 
     def encode_text_prototypes(self, class_names: list[str], prompt_template: str):
         prompts = self.build_prompts(class_names, prompt_template)
@@ -154,7 +177,7 @@ class SAM2SigLIPTeacher:
         self,
         image_path: str | Path,
         class_names: list[str],
-        prompt_template: str = "a photo of a {}",
+        prompt_template: str = "a street-scene image crop containing {}",
     ) -> dict[str, Any]:
         image_path = Path(image_path)
         with Image.open(image_path) as image:
@@ -162,17 +185,20 @@ class SAM2SigLIPTeacher:
             original_width, original_height = image.size
             image_np = np.asarray(image, dtype=np.uint8)
 
-        output_class_names = list(class_names) + [self.background_class_name]
-        text_features, prompts = self.encode_text_prototypes(output_class_names, prompt_template)
+        semantic_class_names = list(class_names)
+        output_class_names = semantic_class_names + [self.background_class_name]
+        text_features, semantic_prompts = self.encode_text_prototypes(semantic_class_names, prompt_template)
+        prompts = semantic_prompts + ["uncovered image area outside SAM2 masks"]
         masks = self.mask_generator.generate(image_np)
         masks = sorted(masks, key=lambda item: float(item.get("area", 0.0)), reverse=True)
 
         num_classes = len(output_class_names)
+        background_index = num_classes - 1
         dense_logits = np.full((num_classes, original_height, original_width), -10.0, dtype=np.float32)
-        dense_logits[-1] = 10.0
+        dense_logits[background_index] = 10.0
         dense_confidence = np.zeros((original_height, original_width), dtype=np.float32)
         dense_mask_area = np.zeros((original_height, original_width), dtype=np.float32)
-        dense_pred_label = np.full((original_height, original_width), num_classes - 1, dtype=np.int16)
+        dense_pred_label = np.full((original_height, original_width), background_index, dtype=np.int16)
 
         crops = [self._masked_crop(image_np, ann["segmentation"].astype(bool), ann["bbox"]) for ann in masks]
         image_features = self._encode_crops(crops)
@@ -186,9 +212,11 @@ class SAM2SigLIPTeacher:
             mask = ann["segmentation"].astype(bool)
             if not np.any(mask):
                 continue
+            full_logits = np.full(num_classes, -10.0, dtype=np.float32)
+            full_logits[: len(semantic_class_names)] = logits
             pred_idx = int(np.argmax(logits))
             confidence = float(self.torch.softmax(self.torch.from_numpy(logits), dim=0).max().item())
-            dense_logits[:, mask] = logits[:, None]
+            dense_logits[:, mask] = full_logits[:, None]
             dense_confidence[mask] = confidence
             dense_mask_area[mask] = float(ann.get("area", int(mask.sum())))
             dense_pred_label[mask] = pred_idx
