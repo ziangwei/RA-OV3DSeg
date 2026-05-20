@@ -79,7 +79,7 @@ sample_indices = []
 for split, infos in (("train", train_infos), ("val", val_infos)):
     for row, info in enumerate(infos):
         name = str(info.get("lidar_token", ""))
-        match = re.fullmatch(r"sample_(\d{4})", name)
+        match = re.fullmatch(r"sample_(\d+)", name)
         if match is None:
             missing_names.append(f"{split}[{row}]={name}")
             continue
