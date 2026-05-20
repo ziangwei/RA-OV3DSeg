@@ -145,7 +145,12 @@ def filter_by_manifest(
         copied["original_token"] = copied.get("token")
         copied["original_sample_token"] = copied.get("sample_token")
         copied["sample_idx"] = sample_idx
-        copied["sample_token"] = index_to_token.get(sample_idx, token)
+        if sample_idx in index_to_token:
+            copied["sample_token"] = index_to_token[sample_idx]
+        elif token in token_to_index:
+            copied["sample_token"] = token
+        else:
+            copied.pop("sample_token", None)
         copied["lidar_token"] = f"sample_{sample_idx:04d}"
         filtered.append(copied)
     return filtered

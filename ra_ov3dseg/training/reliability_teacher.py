@@ -209,7 +209,7 @@ class ReliabilityTeacherCache:
     @staticmethod
     def _candidate_tokens(data_dict: dict[str, Any]) -> list[str]:
         candidates: list[str] = []
-        for key in ("sample_token", "token", "name"):
+        for key in ("sample_token",):
             value = _scalar_to_str(data_dict.get(key))
             if value:
                 candidates.append(value)

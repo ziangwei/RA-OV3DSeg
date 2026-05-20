@@ -115,6 +115,10 @@ Server environment target observed during Phase 0:
   `sample_token` back into each matched row and preserves Pointcept's original
   tokens under `original_*`, because Pointcept info tokens can be LiDAR
   sample_data identifiers rather than nuScenes sample identifiers.
+- Reliability lookup now treats only `sample_token` as a token fallback and
+  does not trust generic `token`; pilot preflight reports token namespace
+  differences as warnings while using point count and raw/cache coordinate
+  equality as the hard alignment gate.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
