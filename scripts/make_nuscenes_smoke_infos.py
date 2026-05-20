@@ -55,30 +55,51 @@ def info_token(info: dict[str, Any]) -> str | None:
     return None
 
 
-def info_timestamp(info: dict[str, Any]) -> int | None:
+def timestamp_candidates(value: Any) -> list[int]:
+    if value is None:
+        return []
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return []
+
+    candidates = [int(numeric)]
+    # Pointcept preprocessing may store seconds while the nuScenes sample record
+    # stores microseconds. Keep both forms, but de-duplicate in order.
+    if abs(numeric) < 1_000_000_000_000:
+        candidates.append(int(round(numeric * 1_000_000)))
+    else:
+        candidates.append(int(round(numeric / 1_000_000)))
+    return list(dict.fromkeys(candidates))
+
+
+def info_timestamps(info: dict[str, Any]) -> list[int]:
+    candidates: list[int] = []
     for key in ("timestamp", "lidar_timestamp"):
-        value = info.get(key)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
-    return None
+        candidates.extend(timestamp_candidates(info.get(key)))
+    return list(dict.fromkeys(candidates))
 
 
-def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int], dict[int, int]]:
+def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int], dict[int, int], dict[int, str]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     tokens = {
         str(item["sample_token"])
         for item in data.get("samples", [])
         if isinstance(item, dict) and item.get("sample_token") is not None
     }
-    timestamps = {
-        int(item["timestamp"])
-        for item in data.get("samples", [])
-        if isinstance(item, dict) and item.get("timestamp") is not None
+    timestamp_index_sets: dict[int, set[int]] = {}
+    for item in data.get("samples", []):
+        if not isinstance(item, dict) or item.get("sample_idx") is None:
+            continue
+        sample_idx = int(item["sample_idx"])
+        for timestamp in timestamp_candidates(item.get("timestamp")):
+            timestamp_index_sets.setdefault(timestamp, set()).add(sample_idx)
+    timestamp_to_index = {
+        timestamp: next(iter(sample_indices))
+        for timestamp, sample_indices in timestamp_index_sets.items()
+        if len(sample_indices) == 1
     }
+    timestamps = set(timestamp_to_index)
     token_to_index = {
         str(item["sample_token"]): int(item["sample_idx"])
         for item in data.get("samples", [])
@@ -86,46 +107,46 @@ def load_manifest_keys(path: Path) -> tuple[set[str], set[int], dict[str, int], 
         and item.get("sample_token") is not None
         and item.get("sample_idx") is not None
     }
-    timestamp_to_index = {
-        int(item["timestamp"]): int(item["sample_idx"])
+    index_to_token = {
+        int(item["sample_idx"]): str(item["sample_token"])
         for item in data.get("samples", [])
         if isinstance(item, dict)
-        and item.get("timestamp") is not None
         and item.get("sample_idx") is not None
+        and item.get("sample_token") is not None
     }
     if not tokens and not timestamps:
         raise ValueError(f"No samples[].sample_token or samples[].timestamp entries found in {path}")
-    return tokens, timestamps, token_to_index, timestamp_to_index
+    return tokens, timestamps, token_to_index, timestamp_to_index, index_to_token
 
 
 def filter_by_manifest(
     infos: list[dict[str, Any]],
-    tokens: set[str],
-    timestamps: set[int],
     token_to_index: dict[str, int],
     timestamp_to_index: dict[int, int],
+    index_to_token: dict[int, str],
 ) -> list[dict[str, Any]]:
     filtered = []
     for info in infos:
         token = info_token(info)
-        timestamp = info_timestamp(info)
-        if token not in tokens and timestamp not in timestamps:
-            continue
-        copied = dict(info)
+        timestamp_matches = [timestamp for timestamp in info_timestamps(info) if timestamp in timestamp_to_index]
         sample_idx = None
-        if token:
-            copied["sample_token"] = token
-            if token in token_to_index:
-                sample_idx = token_to_index[token]
-        if sample_idx is None and timestamp is not None and timestamp in timestamp_to_index:
-            sample_idx = timestamp_to_index[timestamp]
-        if sample_idx is not None:
-            copied["sample_idx"] = sample_idx
-            # Pointcept NuScenesDataset exposes only lidar_token as data_dict["name"].
-            # Preserve the true token separately and use a cache-resolvable
-            # sample_<idx> name in generated smoke/pilot info files.
-            copied["original_lidar_token"] = copied.get("lidar_token")
-            copied["lidar_token"] = f"sample_{sample_idx:04d}"
+        if token in token_to_index:
+            sample_idx = token_to_index[token]
+        elif timestamp_matches:
+            sample_idx = timestamp_to_index[timestamp_matches[0]]
+        if sample_idx is None:
+            continue
+
+        copied = dict(info)
+        # Pointcept NuScenesDataset exposes only lidar_token as data_dict["name"].
+        # Preserve original Pointcept identifiers separately and inject manifest
+        # sample identity so reliability cache lookup uses one namespace.
+        copied["original_lidar_token"] = copied.get("lidar_token")
+        copied["original_token"] = copied.get("token")
+        copied["original_sample_token"] = copied.get("sample_token")
+        copied["sample_idx"] = sample_idx
+        copied["sample_token"] = index_to_token.get(sample_idx, token)
+        copied["lidar_token"] = f"sample_{sample_idx:04d}"
         filtered.append(copied)
     return filtered
 
@@ -147,28 +168,25 @@ def main() -> int:
     source_val_infos = load_infos(source_val)
     if args.sample_indices_path:
         manifest_path = Path(args.sample_indices_path).expanduser().resolve()
-        tokens, timestamps, token_to_index, timestamp_to_index = load_manifest_keys(manifest_path)
+        tokens, timestamps, token_to_index, timestamp_to_index, index_to_token = load_manifest_keys(manifest_path)
         train_infos = filter_by_manifest(
             source_train_infos,
-            tokens,
-            timestamps,
             token_to_index,
             timestamp_to_index,
+            index_to_token,
         )[: args.train_samples]
         val_infos = filter_by_manifest(
             source_val_infos,
-            tokens,
-            timestamps,
             token_to_index,
             timestamp_to_index,
+            index_to_token,
         )[: args.val_samples]
         if not train_infos or not val_infos:
             combined = filter_by_manifest(
                 source_train_infos + source_val_infos,
-                tokens,
-                timestamps,
                 token_to_index,
                 timestamp_to_index,
+                index_to_token,
             )
             train_infos = combined[: args.train_samples]
             val_start = min(len(train_infos), len(combined))

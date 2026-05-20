@@ -111,6 +111,10 @@ Server environment target observed during Phase 0:
   cache coverage and raw LiDAR/cache coordinate alignment before training,
   redirects verbose Pointcept output away from tmux, and shows tracebacks only
   when `PILOT_VERBOSE_FAILURE=1`.
+- Token-namespace fix: generated subset info now writes the manifest
+  `sample_token` back into each matched row and preserves Pointcept's original
+  tokens under `original_*`, because Pointcept info tokens can be LiDAR
+  sample_data identifiers rather than nuScenes sample identifiers.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
