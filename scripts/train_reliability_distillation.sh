@@ -203,6 +203,15 @@ import ra_ov3dseg.training.reliability_teacher  # noqa: F401
 
 default_config_parser = defaults.default_config_parser
 TEACHER_KEYS = ("teacher_logits", "teacher_valid_mask", "reliability_weight")
+POINT_INDEX_TRANSFORMS = {
+    "GridSample",
+    "SphereCrop",
+    "ShufflePoint",
+    "RandomDropout",
+    "PointClip",
+    "CropBoundary",
+}
+NUSCENES_POINT_KEYS = ("coord", "strength", "segment")
 
 
 def _get_attr(obj, key, default=None):
@@ -233,7 +242,10 @@ def _merge_sequence(existing, extra):
 
 def _patch_transform_keys(transforms):
     for transform in transforms:
+        transform_type = _get_attr(transform, "type", "")
         keys = _get_attr(transform, "keys", None)
+        if keys is None and transform_type in POINT_INDEX_TRANSFORMS:
+            keys = NUSCENES_POINT_KEYS
         if keys is not None:
             _set_attr(transform, "keys", _merge_sequence(keys, TEACHER_KEYS))
 
