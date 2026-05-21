@@ -132,6 +132,10 @@ Server environment target observed during Phase 0:
   best pilot val_mIoU was 0.4554 at threshold 0.9. This is a real positive
   reliability signal, but not the final Stage 4 gate because it uses the
   diagnostic cache-backed subset rather than a larger/full train cache.
+  Threshold sweep table: t=0.0 -> 0.3636 mIoU, valid=0.2571; t=0.3 ->
+  0.3155, valid=0.2835; t=0.5 -> 0.3659, valid=0.1648; t=0.7 -> 0.3946,
+  valid=0.1054; t=0.9 -> 0.4554, valid=0.0258. Strict filtering beats the
+  unfiltered teacher by +0.0918 mIoU in the pilot.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 

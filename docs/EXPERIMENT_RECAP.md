@@ -15,7 +15,7 @@ below via `RunConclusion.append_to_recap()`.
 | 2026-05-20 | stage-teacher | eval_dense_teacher_pseudo_labels | success | teacher_miou=0.1022 | SAM2+SigLIP official16 128-sample diagnostic; coverage=0.5578; semantic top20/top40 mIoU=0.3149/0.3159 |
 | 2026-05-20 | stage-reliability | compute_reliability | success | reliability_mean=0.4990 | 128-sample rank-calibrated cache; semantic_score_ratio=0.4196; high>=0.5 ratio=0.4990 |
 | 2026-05-20 | stage-reliability | train_reliability_distillation | success | smoke_val_miou=0.5686 | smoke wiring pass; threshold=0.5; distill_valid_ratio=0.1190; distill_mean_weight=0.7338 |
-| 2026-05-21 | stage-reliability | pilot_reliability_threshold_sweep | success | best_pilot_val_miou=0.4554 | 128-cache cache-backed pilot; best threshold=0.9; completed 5/5 thresholds |
+| 2026-05-21 | stage-reliability | pilot_reliability_threshold_sweep | success | best_pilot_val_miou=0.4554 | 128-cache cache-backed pilot; best threshold=0.9; t0=0.3636, t0.9=0.4554; completed 5/5 thresholds |
 
 ## Carryover Knowledge From Prototype Phase
 

@@ -33,7 +33,7 @@ future work.
 | SAM2+SigLIP semantic top-confidence mIoU | 0.3149 / 0.3159 | top-20% / top-40% after excluding background/ignore from ranking |
 | Rank-calibrated reliability cache | mean 0.4990 | 128 samples; high>=0.5 ratio 0.4990; semantic score ratio 0.4196 |
 | Reliability distillation smoke | pass | threshold 0.5; distill_valid_ratio 0.1190 after Pointcept GridSample |
-| Best reliability threshold | 0.9 pilot | 128-cache cache-backed threshold pilot; best pilot val mIoU 0.4554, not final Stage 4 gate |
+| Best reliability threshold | 0.9 pilot | 128-cache cache-backed threshold pilot; 0.4554 vs 0.3636 at threshold 0.0, not final Stage 4 gate |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 
 ## Anticipated Questions & Answers
@@ -72,7 +72,9 @@ semantic top-20% and top-40% subsets reached 0.3149 and 0.3159 mIoU,
 suggesting that confidence is useful only as one component of a reliability
 score, not as the whole method. The Stage 4 cache-backed pilot supports this:
 the best threshold so far is the strictest tested threshold, 0.9, with pilot
-val mIoU 0.4554 on the 128-cache subset.
+val mIoU 0.4554 on the 128-cache subset, compared with 0.3636 at threshold
+0.0. The valid distillation ratio dropped from 0.2571 to 0.0258, so the gain
+comes from selective supervision rather than simply using more pseudo-labels.
 
 ### Q: Did the stronger teacher solve pseudo-label quality?
 A: No. It solved the first-order failure mode but did not produce clean dense
