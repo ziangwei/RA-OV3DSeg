@@ -128,6 +128,10 @@ Server environment target observed during Phase 0:
   `outputs/pointcept/reliability_subset_128/raw/`. This makes the Pointcept
   student coordinates and teacher cache share one point contract instead of
   depending on an external raw symlink.
+- 128-cache threshold pilot passed on 2026-05-21: all 5 thresholds completed,
+  best pilot val_mIoU was 0.4554 at threshold 0.9. This is a real positive
+  reliability signal, but not the final Stage 4 gate because it uses the
+  diagnostic cache-backed subset rather than a larger/full train cache.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
