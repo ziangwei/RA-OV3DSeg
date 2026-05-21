@@ -6,8 +6,11 @@ import argparse
 import json
 import os
 import pickle
+import shutil
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +26,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Optional Stage 3/4 JSON manifest with samples[].sample_token; filters smoke infos to cached samples.",
     )
+    parser.add_argument(
+        "--cache_reliability_dir",
+        default=None,
+        type=str,
+        help=(
+            "Optional Stage 4 reliability cache dir. When set, materializes "
+            "subset raw LiDAR files from cache point_xyz so Pointcept coord "
+            "order exactly matches the teacher cache."
+        ),
+    )
     return parser
 
 
@@ -35,6 +48,13 @@ def dump_infos(path: Path, infos) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         pickle.dump(infos, f)
+
+
+def reset_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
 
 
 def scalar_to_str(value: Any) -> str | None:
@@ -154,6 +174,72 @@ def filter_by_manifest(
     return filtered
 
 
+def load_lidar_bin(path: Path) -> np.ndarray | None:
+    if not path.exists():
+        return None
+    raw = np.fromfile(path, dtype=np.float32)
+    if raw.size % 5 != 0:
+        return None
+    return raw.reshape(-1, 5)
+
+
+def materialize_cache_backed_raw(
+    infos: list[dict[str, Any]],
+    source_root: Path,
+    output_root: Path,
+    reliability_dir: Path,
+) -> None:
+    raw_root = output_root / "raw"
+    reset_path(raw_root)
+    lidar_dir = raw_root / "ra_cache_lidar"
+    label_dir = raw_root / "ra_cache_lidarseg"
+    lidar_dir.mkdir(parents=True, exist_ok=True)
+    label_dir.mkdir(parents=True, exist_ok=True)
+
+    for info in infos:
+        if info.get("sample_idx") is None:
+            raise ValueError("cache-backed raw requires every info row to have sample_idx")
+        sample_idx = int(info["sample_idx"])
+        prefix = f"sample_{sample_idx:04d}"
+        reliability_path = reliability_dir / f"{prefix}_reliability.npz"
+        if not reliability_path.exists():
+            raise FileNotFoundError(f"reliability cache not found for cache-backed raw: {reliability_path}")
+
+        with np.load(reliability_path, allow_pickle=False) as reliability_npz:
+            point_xyz = reliability_npz["point_xyz"][:, :3].astype(np.float32)
+        num_points = int(point_xyz.shape[0])
+
+        strength_ring = np.zeros((num_points, 2), dtype=np.float32)
+        source_lidar_rel = scalar_to_str(info.get("lidar_path"))
+        if source_lidar_rel:
+            source_lidar = load_lidar_bin(source_root / "raw" / source_lidar_rel)
+            if source_lidar is not None and source_lidar.shape[0] == num_points:
+                strength_ring = source_lidar[:, 3:5].astype(np.float32)
+
+        cache_lidar_rel = f"ra_cache_lidar/{prefix}.bin"
+        cache_lidar_path = raw_root / cache_lidar_rel
+        np.concatenate([point_xyz, strength_ring], axis=1).astype(np.float32).tofile(cache_lidar_path)
+
+        info["original_lidar_path"] = info.get("lidar_path")
+        info["lidar_path"] = cache_lidar_rel
+
+        source_label_rel = scalar_to_str(info.get("gt_segment_path"))
+        if source_label_rel:
+            source_label_path = source_root / "raw" / source_label_rel
+            if not source_label_path.exists():
+                raise FileNotFoundError(f"gt segment file not found for cache-backed raw: {source_label_path}")
+            labels = np.fromfile(source_label_path, dtype=np.uint8)
+            if labels.shape[0] != num_points:
+                raise ValueError(
+                    f"gt segment count mismatch for {prefix}: labels={labels.shape[0]} cache={num_points}"
+                )
+            cache_label_rel = f"ra_cache_lidarseg/{prefix}.bin"
+            cache_label_path = raw_root / cache_label_rel
+            labels.tofile(cache_label_path)
+            info["original_gt_segment_path"] = info.get("gt_segment_path")
+            info["gt_segment_path"] = cache_label_rel
+
+
 def main() -> int:
     args = build_parser().parse_args()
     source_root = Path(args.source_root).expanduser().resolve()
@@ -202,19 +288,28 @@ def main() -> int:
     if not val_infos:
         raise RuntimeError(f"No val infos loaded from {source_val}")
 
+    cache_reliability_dir = (
+        Path(args.cache_reliability_dir).expanduser().resolve() if args.cache_reliability_dir else None
+    )
+    if cache_reliability_dir is not None:
+        materialize_cache_backed_raw(train_infos + val_infos, source_root, output_root, cache_reliability_dir)
+
     dump_infos(output_root / "info" / f"{info_name}_train.pkl", train_infos)
     dump_infos(output_root / "info" / f"{info_name}_val.pkl", val_infos)
 
     raw_target = source_root / "raw"
     raw_link = output_root / "raw"
-    if raw_link.exists() or raw_link.is_symlink():
-        raw_link.unlink()
-    os.symlink(raw_target, raw_link, target_is_directory=True)
+    if cache_reliability_dir is None:
+        reset_path(raw_link)
+        os.symlink(raw_target, raw_link, target_is_directory=True)
 
     print(f"[smoke-infos] source_root={source_root}")
     print(f"[smoke-infos] output_root={output_root}")
     print(f"[smoke-infos] train={len(train_infos)} val={len(val_infos)}")
-    print(f"[smoke-infos] raw -> {raw_target}")
+    if cache_reliability_dir is None:
+        print(f"[smoke-infos] raw -> {raw_target}")
+    else:
+        print(f"[smoke-infos] raw=cache-backed from {cache_reliability_dir}")
     return 0
 
 

@@ -95,6 +95,9 @@ if [ "${SMOKE}" = "1" ]; then
   if [ -n "${RELIABILITY_SAMPLE_INDEX_MANIFEST:-}" ]; then
     smoke_args+=(--sample_indices_path "${RELIABILITY_SAMPLE_INDEX_MANIFEST}")
   fi
+  if [ -n "${RELIABILITY_DIR:-}" ]; then
+    smoke_args+=(--cache_reliability_dir "${RELIABILITY_DIR}")
+  fi
   python "${PROJECT_ROOT}/scripts/make_nuscenes_smoke_infos.py" "${smoke_args[@]}" | tee -a "${LOG_FILE}"
   DATA_ROOT="${SMOKE_DATA_ROOT}"
 fi

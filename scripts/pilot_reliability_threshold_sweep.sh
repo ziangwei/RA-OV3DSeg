@@ -85,7 +85,8 @@ python "${PROJECT_ROOT}/scripts/make_nuscenes_smoke_infos.py" \
   --max_sweeps "${POINTCEPT_SWEEPS}" \
   --train_samples "${PILOT_TRAIN_SAMPLES}" \
   --val_samples "${PILOT_VAL_SAMPLES}" \
-  --sample_indices_path "${RELIABILITY_SAMPLE_INDEX_MANIFEST}"
+  --sample_indices_path "${RELIABILITY_SAMPLE_INDEX_MANIFEST}" \
+  --cache_reliability_dir "${RELIABILITY_DIR}"
 
 python - \
   "${PILOT_SUBSET_ROOT}" \

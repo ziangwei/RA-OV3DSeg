@@ -122,6 +122,12 @@ Server environment target observed during Phase 0:
 - Timestamp fallback now uses only exact microsecond timestamps. Integer-second
   matching is forbidden because nuScenes has multiple samples per second and
   can map Pointcept info rows to the wrong teacher cache.
+- Pilot subset generation is cache-backed: for reliability pilot runs,
+  `make_nuscenes_smoke_infos.py` writes subset LiDAR `.bin` files from
+  reliability-cache `point_xyz` and matching lidarseg labels into
+  `outputs/pointcept/reliability_subset_128/raw/`. This makes the Pointcept
+  student coordinates and teacher cache share one point contract instead of
+  depending on an external raw symlink.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
 
