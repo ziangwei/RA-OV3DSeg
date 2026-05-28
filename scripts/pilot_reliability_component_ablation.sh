@@ -7,7 +7,7 @@ cd "${PROJECT_ROOT}"
 STAGE="stage-reliability"
 EXPERIMENT_NAME="pilot_reliability_component_ablation"
 POINTCEPT_SWEEPS="${POINTCEPT_SWEEPS:-1}"
-COMPONENT_MODES="${COMPONENT_MODES:-full uniform no_distance no_geometric no_semantic}"
+COMPONENT_MODES="${COMPONENT_MODES:-full random uniform no_distance no_geometric no_semantic}"
 COMPONENT_THRESHOLD="${COMPONENT_THRESHOLD:-0.9}"
 PILOT_TRAIN_SAMPLES="${PILOT_TRAIN_SAMPLES:-128}"
 PILOT_VAL_SAMPLES="${PILOT_VAL_SAMPLES:-32}"
@@ -347,8 +347,11 @@ threshold = float(sys.argv[5])
 rows = list(csv.DictReader(summary_path.open("r", encoding="utf-8"), delimiter="\t"))
 completed = [row for row in rows if row["status"] == "success" and row["gate_passed"] == "yes"]
 full = next((row for row in completed if row["component_mode"] == "full"), None)
+random = next((row for row in completed if row["component_mode"] == "random"), None)
 full_miou = float(full["val_miou"]) if full else 0.0
-ablation_rows = [row for row in completed if row["component_mode"] != "full"]
+random_miou = float(random["val_miou"]) if random else 0.0
+random_gap = full_miou - random_miou if full is not None and random is not None else 0.0
+ablation_rows = [row for row in completed if row["component_mode"].startswith("no_")]
 drop_rows = [
     (row["component_mode"], full_miou - float(row["val_miou"]), float(row["val_miou"]))
     for row in ablation_rows
@@ -358,7 +361,14 @@ max_drop_row = max(drop_rows, key=lambda item: item[1]) if drop_rows else ("-", 
 max_drop = float(max_drop_row[1])
 best = max(completed, key=lambda row: float(row["val_miou"])) if completed else None
 best_miou = float(best["val_miou"]) if best else 0.0
-gate_passed = run_status == "success" and len(completed) == len(rows) and full is not None and max_drop >= 0.005
+gate_passed = (
+    run_status == "success"
+    and len(completed) == len(rows)
+    and full is not None
+    and random is not None
+    and random_gap >= 0.005
+    and max_drop >= 0.005
+)
 
 artifacts = [str(summary_path)]
 if failed_log:
@@ -374,7 +384,8 @@ for row in rows:
 if full is not None:
     print(
         f"[component] gate=max_drop_vs_full={max_drop:.4f} "
-        f"weakest_removed={max_drop_row[0]} full_val_miou={full_miou:.4f}"
+        f"weakest_removed={max_drop_row[0]} random_gap={random_gap:.4f} "
+        f"full_val_miou={full_miou:.4f}"
     )
 if failed_log:
     print(f"[component] failed_component={failed_component} full_log={failed_log}")
@@ -382,7 +393,8 @@ if failed_log:
 if run_status == "success":
     notes = (
         f"threshold={threshold:.3f}; full={full_miou:.4f}; max_drop={max_drop:.4f}; "
-        f"weakest_removed={max_drop_row[0]}; completed_runs={len(completed)}/{len(rows)}"
+        f"weakest_removed={max_drop_row[0]}; random_gap={random_gap:.4f}; "
+        f"completed_runs={len(completed)}/{len(rows)}"
     )
 else:
     notes = f"failed_component={failed_component}; completed_runs={len(completed)}/{len(rows)}"
@@ -397,6 +409,7 @@ conclusion = RunConclusion(
     primary_metric_value=max_drop,
     secondary={
         "full_val_miou": full_miou,
+        "random_gap_vs_full": random_gap,
         "best_component_val_miou": best_miou,
         "threshold": threshold,
     },

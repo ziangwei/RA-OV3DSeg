@@ -112,7 +112,7 @@ class ReliabilityTeacherCache:
             raise FileNotFoundError(f"reliability_dir does not exist: {self.reliability_dir}")
         if not self.dense_point_dir.exists():
             raise FileNotFoundError(f"dense_point_dir does not exist: {self.dense_point_dir}")
-        if self.component_mode not in {"full", "no_distance", "no_geometric", "no_semantic", "uniform"}:
+        if self.component_mode not in {"full", "random", "no_distance", "no_geometric", "no_semantic", "uniform"}:
             raise ValueError(f"Unsupported reliability component_mode: {self.component_mode}")
         if self.component_calibration not in {"rank", "raw"}:
             raise ValueError(f"Unsupported component_calibration: {self.component_calibration}")
@@ -263,6 +263,19 @@ class ReliabilityTeacherCache:
             raw = reliability.get("reliability_weight_raw", reliability["reliability_weight"]).astype(np.float32)
             weight = reliability["reliability_weight"].astype(np.float32)
             return raw, weight
+        if self.component_mode == "random":
+            point_xyz = reliability.get("point_xyz")
+            if point_xyz is None:
+                base = np.arange(point_valid_mask.shape[0], dtype=np.float32)
+                raw = np.sin(base * 12.9898) * 43758.5453
+            else:
+                coord = point_xyz[:, :3].astype(np.float32)
+                constants = np.asarray([12.9898, 78.2330, 37.7190], dtype=np.float32)
+                raw = np.sin(coord @ constants) * 43758.5453
+            raw = (raw - np.floor(raw)).astype(np.float32)
+            raw[~point_valid_mask] = 0.0
+            weight = _rank_calibrate(raw, point_valid_mask) if self.component_calibration == "rank" else raw
+            return raw.astype(np.float32), weight.astype(np.float32)
         if self.component_mode == "uniform":
             raw = point_valid_mask.astype(np.float32)
             return raw, raw

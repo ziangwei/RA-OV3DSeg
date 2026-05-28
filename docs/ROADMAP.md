@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
 > **Current Stage**: stage-reliability
-> **Last Updated**: 2026-05-20
+> **Last Updated**: 2026-05-28
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -15,15 +15,26 @@ component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Next Stage 4 experiment: rerun the 128-cache pilot threshold sweep through
-`scripts/pilot_reliability_threshold_sweep.sh`. The runner rebuilds a
-cache-checked Pointcept subset, overwrites prior pilot outputs by default,
-hides long Pointcept logs in `outputs/logs/reliability_pilot/`, preflights
-raw LiDAR coordinates against the reliability cache before launching training,
-and prints only compact per-threshold status lines plus the final
-RunConclusion. Treat the pilot as a direction check, not the final Stage 4
-gate; only generate a larger/full train cache if the pilot shows useful
-threshold signal.
+Stage 4 is now in closure mode. Do not expand to a full 6019-sample teacher
+cache, do not switch to another teacher family, and do not start the original
+full 10-run 20-epoch ablation plan unless the user explicitly reopens the
+scope.
+
+Next and final GPU experiment for this stage: run the 128-cache component and
+control pilot through `scripts/pilot_reliability_component_ablation.sh`. The
+runner fixes `threshold=0.9`, rebuilds the same cache-backed Pointcept subset,
+and compares `full`, `random`, `uniform`, `no_distance`, `no_geometric`, and
+`no_semantic`. This directly tests the strongest remaining objection: whether
+the gain is a real reliability signal or merely the result of feeding fewer
+bad teacher labels.
+
+Decision rule:
+- If `full` clearly beats `random` and at least one component removal hurts by
+  >= 0.005 mIoU, close Stage 4 as a positive pilot-scale reliability result.
+- If `random` matches or beats `full`, close Stage 4 as a weak-teacher
+  diagnostic with a negative/limited reliability conclusion.
+- In both cases, stop new model work after this pilot and move to README,
+  limitations, and interview framing.
 
 Server discovery commands:
 
@@ -138,6 +149,10 @@ Server environment target observed during Phase 0:
   unfiltered teacher by +0.0918 mIoU in the pilot.
 - Planned gate: at least one non-zero reliability threshold beats threshold=0
   by >= 0.005 mIoU, and at least one component removal hurts by >= 0.005 mIoU.
+- Closure adjustment on 2026-05-28: the remaining work is intentionally capped
+  at a 128-cache component/control pilot plus documentation. This keeps the
+  project honest and prevents full-scale compute spend on a weak teacher whose
+  main value is diagnostic rather than state-of-the-art performance.
 
 ### stage-teacher (complete)
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
@@ -200,5 +215,9 @@ Server environment target observed during Phase 0:
 
 ## Pivots and Adjustments
 
-If Stage 3 or Stage 4 triggers a project pivot, document it here with date,
-trigger, and new framing.
+- 2026-05-28: Stage 4 closure pivot. Trigger: the SAM2+SigLIP teacher is weak
+  enough that full-scale distillation would have poor cost/benefit, and the
+  strongest scientific risk is that reliability filtering may simply be a
+  sparse-supervision control. New framing: finish a bounded pilot study of
+  weak 2D-to-3D open-vocabulary teacher distillation, including random and
+  component controls, then stop model work and document the limitations.

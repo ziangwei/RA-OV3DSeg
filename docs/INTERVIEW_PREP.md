@@ -7,9 +7,10 @@ Stage 5 is interview-ready.
 ## Elevator Pitch (30 seconds)
 
 RA-OV3DSeg is a reliability-aware open-vocabulary 3D semantic segmentation
-project for outdoor LiDAR scenes. The current foundation is a Pointcept SpUNet
-closed-set baseline on nuScenes-lidarseg, which reaches 0.7432 val mIoU and
-provides the checkpoint for the upcoming text-aligned head replacement.
+project for outdoor LiDAR scenes. It uses Pointcept SpUNet as a strong 3D
+baseline, a SigLIP text-aligned head, and a SAM2+SigLIP 2D teacher projected
+into LiDAR space to study when weak open-vocabulary pseudo-labels are useful
+or harmful for 3D distillation.
 
 ## Long Pitch (3 minutes)
 
@@ -22,6 +23,7 @@ future work.
 |---|---|---|---|
 | 3D backbone choice | Pointcept SpUNet v1m1 | Self-written Cylinder3D-style backbone; vendored partial SpUNet adapter | The prototype showed that sparse-conv recipe details dominate quality. Pointcept gives a mature published recipe, stable checkpoint format, and reproducible 70+ mIoU without maintaining a second backbone. |
 | Stage 4 threshold scale | Rank-calibrated reliability weights for threshold ablation, while preserving raw multiplicative weights | Lowering the fixed threshold grid to match raw scores | The raw product is useful diagnostically but lives around 0.0-0.2 on the 128-sample cache, so the fixed [0.3, 0.5, 0.7, 0.9] grid would zero out supervision. Rank calibration keeps the planned grid meaningful without lowering the gates. |
+| Project closure scope | Finish a 128-cache component/control pilot, then document honestly | Full 6019-cache ablations, new teacher families, and a large manual OV-query benchmark | The current teacher is weak enough that further scale has poor cost/benefit. The remaining high-value question is whether reliability beats random/sparse controls; after that, the project should be framed as a bounded weak-teacher distillation study rather than a SOTA segmentation method. |
 
 ## Headline Results
 
@@ -83,6 +85,14 @@ on the planned 128-sample diagnostic split, which is enough to proceed but not
 enough to trust all pseudo-labels. The project should now be judged by whether
 Stage 4 reliability weighting improves over unfiltered distillation.
 
+### Q: Isn't this just filtering out a bad teacher?
+A: That is the main risk, and the project should not hide it. The threshold
+pilot already shows that strict selective supervision is better than using all
+teacher labels, but that alone does not prove the reliability formula is
+special. The closure experiment therefore adds a random same-scale control and
+component removals. If full reliability does not beat those controls, the
+honest conclusion is a weak-teacher diagnostic rather than a method claim.
+
 ### Q: Why only nuScenes? What about SemanticKITTI / Waymo?
 A: filled at Stage 5.
 
@@ -94,6 +104,10 @@ A: filled at Stage 5.
 - Teacher confidence is not automatically calibrated for 3D distillation.
   Background/ignore predictions can be very confident and must be handled
   separately from semantic pseudo-label ranking.
+- The current evidence is pilot-scale. Unless the final component/control
+  pilot is strongly positive, the defensible claim is about diagnosing and
+  bounding weak-teacher distillation rather than proposing a broadly validated
+  reliability method.
 
 ## What I Would Do With 3 More Months
 
