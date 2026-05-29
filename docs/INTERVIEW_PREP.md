@@ -23,7 +23,7 @@ future work.
 |---|---|---|---|
 | 3D backbone choice | Pointcept SpUNet v1m1 | Self-written Cylinder3D-style backbone; vendored partial SpUNet adapter | The prototype showed that sparse-conv recipe details dominate quality. Pointcept gives a mature published recipe, stable checkpoint format, and reproducible 70+ mIoU without maintaining a second backbone. |
 | Stage 4 threshold scale | Rank-calibrated reliability weights for threshold ablation, while preserving raw multiplicative weights | Lowering the fixed threshold grid to match raw scores | The raw product is useful diagnostically but lives around 0.0-0.2 on the 128-sample cache, so the fixed [0.3, 0.5, 0.7, 0.9] grid would zero out supervision. Rank calibration keeps the planned grid meaningful without lowering the gates. |
-| Project closure scope | Finish a 128-cache component/control pilot, then document honestly | Full 6019-cache ablations, new teacher families, and a large manual OV-query benchmark | The current teacher is weak enough that further scale has poor cost/benefit. The remaining high-value question is whether reliability beats random/sparse controls; after that, the project should be framed as a bounded weak-teacher distillation study rather than a SOTA segmentation method. |
+| Project closure scope | Close Stage 4 after the 128-cache component/control pilot and document honestly | Full 6019-cache ablations, new teacher families, and a large manual OV-query benchmark | The current teacher is weak enough that further scale has poor cost/benefit. The component/control pilot answered the key question: the proposed reliability formula did not beat random/sparse controls, so the project should be framed as a bounded weak-teacher distillation study rather than a SOTA segmentation method. |
 
 ## Headline Results
 
@@ -35,7 +35,8 @@ future work.
 | SAM2+SigLIP semantic top-confidence mIoU | 0.3149 / 0.3159 | top-20% / top-40% after excluding background/ignore from ranking |
 | Rank-calibrated reliability cache | mean 0.4990 | 128 samples; high>=0.5 ratio 0.4990; semantic score ratio 0.4196 |
 | Reliability distillation smoke | pass | threshold 0.5; distill_valid_ratio 0.1190 after Pointcept GridSample |
-| Best reliability threshold | 0.9 pilot | 128-cache cache-backed threshold pilot; 0.4554 vs 0.3636 at threshold 0.0, not final Stage 4 gate |
+| Best reliability threshold | 0.9 pilot | threshold sweep only; 0.4554 vs 0.3636 at threshold 0.0, later contradicted by component/control pilot |
+| Reliability component/control pilot | gate failed | full=0.0619, random=0.0793, uniform=0.0683, max component drop=0.0023 |
 | OV-query retrieval@5 | TBD | on hand-curated benchmark |
 
 ## Anticipated Questions & Answers
@@ -66,17 +67,14 @@ A: filled at Stage 4. This is the project's sharpest question and must be
 answered honestly.
 
 ### Q: How does your reliability score differ from a confidence threshold?
-A: Confidence alone is not enough. In Stage 3, naive confidence ranking was
-misleading because background/ignore predictions dominated high-confidence
-points; 58.22% of score-valid points were excluded on the 128-sample
-diagnostic when ranking only semantic pseudo-labels. After that correction,
-semantic top-20% and top-40% subsets reached 0.3149 and 0.3159 mIoU,
-suggesting that confidence is useful only as one component of a reliability
-score, not as the whole method. The Stage 4 cache-backed pilot supports this:
-the best threshold so far is the strictest tested threshold, 0.9, with pilot
-val mIoU 0.4554 on the 128-cache subset, compared with 0.3636 at threshold
-0.0. The valid distillation ratio dropped from 0.2571 to 0.0258, so the gain
-comes from selective supervision rather than simply using more pseudo-labels.
+A: The intended score combined distance, geometric visibility, and semantic
+confidence, but the final pilot did not validate that formula. Earlier
+diagnostics showed that high-confidence semantic subsets were cleaner than the
+raw teacher, and the threshold sweep suggested that strict selective
+supervision could help. However, the component/control pilot showed that
+`full` reliability did not beat a random same-scale control. The honest answer
+is that selective filtering matters for weak teachers, but this specific
+reliability formula is not yet proven better than simpler controls.
 
 ### Q: Did the stronger teacher solve pseudo-label quality?
 A: No. It solved the first-order failure mode but did not produce clean dense
@@ -86,12 +84,13 @@ enough to trust all pseudo-labels. The project should now be judged by whether
 Stage 4 reliability weighting improves over unfiltered distillation.
 
 ### Q: Isn't this just filtering out a bad teacher?
-A: That is the main risk, and the project should not hide it. The threshold
-pilot already shows that strict selective supervision is better than using all
-teacher labels, but that alone does not prove the reliability formula is
-special. The closure experiment therefore adds a random same-scale control and
-component removals. If full reliability does not beat those controls, the
-honest conclusion is a weak-teacher diagnostic rather than a method claim.
+A: Yes, that is the final bounded conclusion. The threshold pilot showed that
+using fewer high-ranked teacher labels can outperform using all labels, but
+the component/control pilot did not show that the proposed reliability formula
+is the reason. `full` reliability reached 0.0619 mIoU, while the random
+same-scale control reached 0.0793 mIoU, and component removal caused only a
+0.0023 maximum drop. I would present this as a weak-teacher diagnostic and a
+negative/limited method result, not as a validated reliability method.
 
 ### Q: Why only nuScenes? What about SemanticKITTI / Waymo?
 A: filled at Stage 5.
@@ -104,10 +103,9 @@ A: filled at Stage 5.
 - Teacher confidence is not automatically calibrated for 3D distillation.
   Background/ignore predictions can be very confident and must be handled
   separately from semantic pseudo-label ranking.
-- The current evidence is pilot-scale. Unless the final component/control
-  pilot is strongly positive, the defensible claim is about diagnosing and
-  bounding weak-teacher distillation rather than proposing a broadly validated
-  reliability method.
+- The final component/control pilot did not validate the proposed reliability
+  formula. The defensible claim is about diagnosing and bounding weak-teacher
+  distillation rather than proposing a broadly validated reliability method.
 
 ## What I Would Do With 3 More Months
 

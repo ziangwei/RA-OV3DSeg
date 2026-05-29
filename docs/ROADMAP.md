@@ -1,7 +1,7 @@
 # RA-OV3DSeg Roadmap
 
 > **Current Stage**: stage-reliability
-> **Last Updated**: 2026-05-28
+> **Last Updated**: 2026-05-29
 
 This is the live operational plan. The static execution plan is in
 `EXECUTION_PLAN.md` and must not be modified. New decisions and adjustments
@@ -15,26 +15,18 @@ component ablations. See `EXECUTION_PLAN.md` Section 7.
 
 ## Next Experiment
 
-Stage 4 is now in closure mode. Do not expand to a full 6019-sample teacher
+Stage 4 is closed for model work. Do not expand to a full 6019-sample teacher
 cache, do not switch to another teacher family, and do not start the original
 full 10-run 20-epoch ablation plan unless the user explicitly reopens the
 scope.
 
-Next and final GPU experiment for this stage: run the 128-cache component and
-control pilot through `scripts/pilot_reliability_component_ablation.sh`. The
-runner fixes `threshold=0.9`, rebuilds the same cache-backed Pointcept subset,
-and compares `full`, `random`, `uniform`, `no_distance`, `no_geometric`, and
-`no_semantic`. This directly tests the strongest remaining objection: whether
-the gain is a real reliability signal or merely the result of feeding fewer
-bad teacher labels.
-
-Decision rule:
-- If `full` clearly beats `random` and at least one component removal hurts by
-  >= 0.005 mIoU, close Stage 4 as a positive pilot-scale reliability result.
-- If `random` matches or beats `full`, close Stage 4 as a weak-teacher
-  diagnostic with a negative/limited reliability conclusion.
-- In both cases, stop new model work after this pilot and move to README,
-  limitations, and interview framing.
+Final Stage 4 closure result: the 128-cache component/control pilot completed
+on 2026-05-29 and did **not** support the reliability formula. `full`
+reliability reached 0.0619 mIoU, while the random same-scale control reached
+0.0793 mIoU. Removing components did not produce a meaningful drop from
+`full` (`max_drop_vs_full=0.0023`, below the 0.005 gate). The remaining work is
+documentation only: frame Stage 4 as a weak-teacher distillation diagnostic,
+not a positive method claim.
 
 Server discovery commands:
 
@@ -153,6 +145,14 @@ Server environment target observed during Phase 0:
   at a 128-cache component/control pilot plus documentation. This keeps the
   project honest and prevents full-scale compute spend on a weak teacher whose
   main value is diagnostic rather than state-of-the-art performance.
+- Component/control pilot completed on 2026-05-29: `full` 0.0619 mIoU,
+  `random` 0.0793, `uniform` 0.0683, `no_distance` 0.0596, `no_geometric`
+  0.0793, `no_semantic` 0.0613. Gate failed: `full` did not beat `random`
+  (`random_gap_vs_full=-0.0174`) and component removal barely hurt
+  (`max_drop_vs_full=0.0023`). Conclusion: the reliability formula is not
+  empirically supported by the closure pilot; the defensible result is that
+  weak 2D-to-3D teachers need selective/controlled supervision, but this
+  particular reliability score is not validated.
 
 ### stage-teacher (complete)
 - Goal: produce dense teacher pseudo-labels from SAM2 masks classified by
@@ -221,3 +221,8 @@ Server environment target observed during Phase 0:
   sparse-supervision control. New framing: finish a bounded pilot study of
   weak 2D-to-3D open-vocabulary teacher distillation, including random and
   component controls, then stop model work and document the limitations.
+- 2026-05-29: Stage 4 closure result. The bounded component/control pilot
+  failed the reliability-specific gate because random sparse filtering matched
+  or beat the proposed score. New framing: negative/limited finding on this
+  reliability formulation, with useful engineering lessons about teacher
+  weakness, cache alignment, and control ablations.
