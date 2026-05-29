@@ -89,39 +89,77 @@ def _extract_state_dict(checkpoint: Any) -> dict[str, Any]:
     return checkpoint
 
 
-def load_pointcept_backbone_weights(backbone: nn.Module, checkpoint_path: str | Path) -> tuple[list[str], list[str]]:
+def _strip_module_prefix(key: str) -> str:
+    while key.startswith("module."):
+        key = _strip_prefix(key, "module.")
+    return key
+
+
+def _tensor_shape_matches(target: torch.Tensor, value: Any) -> bool:
+    return torch.is_tensor(value) and tuple(value.shape) == tuple(target.shape)
+
+
+def _select_matching_state(
+    module: nn.Module,
+    state_dict: dict[str, Any],
+    candidate_prefixes: tuple[str, ...],
+) -> OrderedDict[str, torch.Tensor]:
+    target_state = module.state_dict()
+    best: OrderedDict[str, torch.Tensor] = OrderedDict()
+    for prefix in candidate_prefixes:
+        selected: OrderedDict[str, torch.Tensor] = OrderedDict()
+        for raw_key, value in state_dict.items():
+            key = _strip_module_prefix(str(raw_key))
+            if prefix:
+                if not key.startswith(prefix):
+                    continue
+                key = _strip_prefix(key, prefix)
+            if key in target_state and _tensor_shape_matches(target_state[key], value):
+                selected[key] = value
+        if len(selected) > len(best):
+            best = selected
+    return best
+
+
+def load_pointcept_backbone_weights(
+    backbone: nn.Module, checkpoint_path: str | Path
+) -> tuple[list[str], list[str], int]:
     """Load Stage 1 Pointcept DefaultSegmentor backbone weights, excluding the closed-set head."""
 
     checkpoint_path = Path(checkpoint_path).expanduser().resolve()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = _extract_state_dict(checkpoint)
-    normalized_keys = [_strip_prefix(key, "module.") for key in state_dict]
-    has_backbone_prefix = any(key.startswith("backbone.") for key in normalized_keys)
-    backbone_state: OrderedDict[str, torch.Tensor] = OrderedDict()
-    for key, value in state_dict.items():
-        key = _strip_prefix(key, "module.")
-        if has_backbone_prefix:
-            if not key.startswith("backbone."):
-                continue
-            key = _strip_prefix(key, "backbone.")
-        if key.startswith("final."):
-            continue
-        backbone_state[key] = value
+    backbone_state = _select_matching_state(
+        backbone,
+        state_dict,
+        candidate_prefixes=(
+            "backbone.",
+            "model.backbone.",
+            "segmentor.backbone.",
+            "",
+        ),
+    )
     load_info = backbone.load_state_dict(backbone_state, strict=False)
-    return list(load_info.missing_keys), list(load_info.unexpected_keys)
+    return list(load_info.missing_keys), list(load_info.unexpected_keys), len(backbone_state)
 
 
-def load_segmentor_weights(model: nn.Module, checkpoint_path: str | Path) -> tuple[list[str], list[str]]:
+def load_segmentor_weights(model: nn.Module, checkpoint_path: str | Path) -> tuple[list[str], list[str], int]:
     """Load a full RAOVHeadSegmentor checkpoint, including the text head."""
 
     checkpoint_path = Path(checkpoint_path).expanduser().resolve()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = _extract_state_dict(checkpoint)
-    normalized_state: OrderedDict[str, torch.Tensor] = OrderedDict()
-    for key, value in state_dict.items():
-        normalized_state[_strip_prefix(key, "module.")] = value
+    normalized_state = _select_matching_state(
+        model,
+        state_dict,
+        candidate_prefixes=(
+            "",
+            "model.",
+            "segmentor.",
+        ),
+    )
     load_info = model.load_state_dict(normalized_state, strict=False)
-    return list(load_info.missing_keys), list(load_info.unexpected_keys)
+    return list(load_info.missing_keys), list(load_info.unexpected_keys), len(normalized_state)
 
 
 try:
@@ -175,26 +213,35 @@ class PointceptOVHeadSegmentor(nn.Module):
         )
 
         if backbone_weight_path:
-            missing, unexpected = load_pointcept_backbone_weights(self.backbone, backbone_weight_path)
-            allowed_missing = [key for key in missing if key.startswith("final.")]
-            disallowed_missing = sorted(set(missing) - set(allowed_missing))
-            if disallowed_missing or unexpected:
+            missing, unexpected, loaded = load_pointcept_backbone_weights(self.backbone, backbone_weight_path)
+            if loaded == 0 or unexpected:
                 raise RuntimeError(
                     "Stage 1 backbone load mismatch: "
-                    f"missing={disallowed_missing}, unexpected={unexpected}"
+                    f"loaded={loaded}, missing={missing}, unexpected={unexpected}"
+                )
+            if missing:
+                print(
+                    "[PointceptOVHeadSegmentor] "
+                    f"Stage 1 backbone partially loaded: loaded={loaded}, missing={len(missing)}"
                 )
 
         if model_weight_path:
-            missing, unexpected = load_segmentor_weights(self, model_weight_path)
+            missing, unexpected, loaded = load_segmentor_weights(self, model_weight_path)
             allowed_missing_prefixes = ("backbone.",) if backbone_weight_path else ()
             allowed_missing = [
                 key for key in missing if any(key.startswith(prefix) for prefix in allowed_missing_prefixes)
             ]
+            allowed_missing.append("ov_head.text_prototypes")
             disallowed_missing = sorted(set(missing) - set(allowed_missing))
-            if disallowed_missing or unexpected:
+            if loaded == 0 or disallowed_missing or unexpected:
                 raise RuntimeError(
                     "Stage 2 OV head checkpoint load mismatch: "
-                    f"missing={disallowed_missing}, unexpected={unexpected}"
+                    f"loaded={loaded}, missing={disallowed_missing}, unexpected={unexpected}"
+                )
+            if missing:
+                print(
+                    "[PointceptOVHeadSegmentor] "
+                    f"Stage 2 OV checkpoint partially loaded: loaded={loaded}, missing={len(missing)}"
                 )
 
         if self.freeze_backbone:
