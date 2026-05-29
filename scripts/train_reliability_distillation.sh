@@ -118,12 +118,6 @@ options=(
   "enable_wandb=False"
   "enable_amp=False"
   "data_root=${DATA_ROOT}"
-  "data.train.data_root=${DATA_ROOT}"
-  "data.val.data_root=${DATA_ROOT}"
-  "data.test.data_root=${DATA_ROOT}"
-  "data.train.sweeps=${POINTCEPT_SWEEPS}"
-  "data.val.sweeps=${POINTCEPT_SWEEPS}"
-  "data.test.sweeps=${POINTCEPT_SWEEPS}"
 )
 
 if [ "${SMOKE}" = "1" ]; then
@@ -177,6 +171,8 @@ OV_HEAD_TEMPERATURE="${OV_HEAD_TEMPERATURE}" \
 OV_HEAD_TRAINABLE_TEMPERATURE="${OV_HEAD_TRAINABLE_TEMPERATURE}" \
 FORCE_FP32_BACKBONE="${FORCE_FP32_BACKBONE}" \
 BASELINE_CHECKPOINT="${BASELINE_CHECKPOINT}" \
+POINTCEPT_DATA_ROOT="${DATA_ROOT}" \
+POINTCEPT_SWEEPS="${POINTCEPT_SWEEPS}" \
 RELIABILITY_DIR="${RELIABILITY_DIR}" \
 DENSE_POINT_DIR="${DENSE_POINT_DIR}" \
 RELIABILITY_SAMPLE_INDEX_MANIFEST="${RELIABILITY_SAMPLE_INDEX_MANIFEST:-}" \
@@ -228,6 +224,19 @@ def _set_attr(obj, key, value):
         setattr(obj, key, value)
 
 
+def _del_attr(obj, key):
+    if isinstance(obj, dict):
+        obj.pop(key, None)
+    elif hasattr(obj, key):
+        delattr(obj, key)
+
+
+def _has_attr(obj, key):
+    if isinstance(obj, dict):
+        return key in obj
+    return hasattr(obj, key)
+
+
 def _merge_sequence(existing, extra):
     if existing is None:
         values = []
@@ -249,7 +258,56 @@ def _patch_transform_keys(transforms):
             _set_attr(transform, "keys", _merge_sequence(keys, TEACHER_KEYS))
 
 
+def _patch_dataset_cfg(dataset_cfg, data_root, sweeps):
+    if dataset_cfg is None:
+        return
+    if isinstance(dataset_cfg, (list, tuple)):
+        for child in dataset_cfg:
+            _patch_dataset_cfg(child, data_root, sweeps)
+        return
+
+    dataset_type = str(_get_attr(dataset_cfg, "type", ""))
+    children = []
+    for child_key in ("datasets", "dataset"):
+        child = _get_attr(dataset_cfg, child_key, None)
+        if child is not None:
+            children.append(child)
+
+    if children:
+        # Wrapper datasets such as ConcatDataset should not receive leaf-only
+        # constructor kwargs like data_root, sweeps, or transform.
+        _del_attr(dataset_cfg, "data_root")
+        _del_attr(dataset_cfg, "sweeps")
+        _del_attr(dataset_cfg, "transform")
+        for child in children:
+            _patch_dataset_cfg(child, data_root, sweeps)
+        return
+
+    if dataset_type.endswith("Dataset") or _has_attr(dataset_cfg, "data_root"):
+        _set_attr(dataset_cfg, "data_root", data_root)
+    if dataset_type == "NuScenesDataset" or _has_attr(dataset_cfg, "sweeps"):
+        _set_attr(dataset_cfg, "sweeps", int(sweeps))
+
+
 def _prepend_reliability_transform(train_cfg):
+    if train_cfg is None:
+        return
+    if isinstance(train_cfg, (list, tuple)):
+        for child in train_cfg:
+            _prepend_reliability_transform(child)
+        return
+
+    children = []
+    for child_key in ("datasets", "dataset"):
+        child = _get_attr(train_cfg, child_key, None)
+        if child is not None:
+            children.append(child)
+    if children:
+        _del_attr(train_cfg, "transform")
+        for child in children:
+            _prepend_reliability_transform(child)
+        return
+
     transforms = list(_get_attr(train_cfg, "transform", []))
     reliability_transform = dict(
         type="RALoadReliabilityTeacher",
@@ -282,6 +340,11 @@ def default_config_parser_with_reliability(file_path, options):
     if backbone is None:
         raise ValueError("Pointcept config model has no backbone field.")
     criteria = copy.deepcopy(_get_attr(original_model, "criteria"))
+    data_root = os.environ["POINTCEPT_DATA_ROOT"]
+    sweeps = os.environ.get("POINTCEPT_SWEEPS", "1")
+    _patch_dataset_cfg(cfg.data.train, data_root, sweeps)
+    _patch_dataset_cfg(cfg.data.val, data_root, sweeps)
+    _patch_dataset_cfg(cfg.data.test, data_root, sweeps)
     cfg.model = dict(
         type="RAOVReliabilitySegmentor",
         backbone=backbone,
