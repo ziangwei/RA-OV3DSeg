@@ -1,8 +1,7 @@
 # RA-OV3DSeg Interview Preparation
 
-This document is maintained as a side-effect of normal stage work. Every
-stage completion appends to relevant sections below. The final form after
-Stage 5 is interview-ready.
+This document records the final interview framing after closing Stage 4 as a
+negative/limited weak-teacher distillation study.
 
 ## Elevator Pitch (30 seconds)
 
@@ -14,8 +13,21 @@ or harmful for 3D distillation.
 
 ## Long Pitch (3 minutes)
 
-Filled in at Stage 5. Structure: motivation, method, results, limitations,
-future work.
+RA-OV3DSeg started as an attempt to build open-vocabulary 3D semantic
+segmentation for outdoor LiDAR by distilling 2D open-vocabulary teachers into a
+Pointcept SpUNet student. The first part of the project established a reliable
+base: Pointcept SpUNet reached 0.7432 val mIoU on nuScenes-LiDARSeg, and a
+SigLIP text-prototype head preserved closed-set performance at roughly the same
+level. I then built a SAM2+SigLIP mask-then-classify teacher, projected the
+six-camera outputs into LiDAR space, and measured the teacher directly. The raw
+teacher was weak at 0.1022 mIoU on a 128-sample diagnostic, but semantic
+high-confidence subsets were much cleaner, around 0.315 mIoU. That motivated a
+reliability-weighted distillation stage. The threshold pilot suggested strict
+filtering could help, but the final component/control pilot showed the proposed
+distance/geometric/semantic reliability formula did not beat a random same-scale
+control. I closed the project as a weak-teacher distillation diagnostic: the
+pipeline is real and the negative result is informative, but the method itself
+is not validated as a positive contribution.
 
 ## Decision Log
 
@@ -37,7 +49,7 @@ future work.
 | Reliability distillation smoke | pass | threshold 0.5; distill_valid_ratio 0.1190 after Pointcept GridSample |
 | Best reliability threshold | 0.9 pilot | threshold sweep only; 0.4554 vs 0.3636 at threshold 0.0, later contradicted by component/control pilot |
 | Reliability component/control pilot | gate failed | full=0.0619, random=0.0793, uniform=0.0683, max component drop=0.0023 |
-| OV-query retrieval@5 | TBD | on hand-curated benchmark |
+| OV-query retrieval@5 | not pursued | stopped after Stage 4 control failure |
 
 ## Anticipated Questions & Answers
 
@@ -63,8 +75,11 @@ teacher, so Stage 4 must treat it as noisy pseudo-label supervision rather
 than as ground truth.
 
 ### Q: Your novel-class mIoU is low. Is OV actually working?
-A: filled at Stage 4. This is the project's sharpest question and must be
-answered honestly.
+A: Not in the strong sense originally intended. The text-aligned head can
+preserve closed-set performance, and the 2D teacher produces some cleaner
+semantic subsets, but the final reliability distillation evidence is not enough
+to claim robust open-vocabulary 3D segmentation. I would frame the result as an
+honest diagnostic of weak 2D teacher transfer, not as a successful OV model.
 
 ### Q: How does your reliability score differ from a confidence threshold?
 A: The intended score combined distance, geometric visibility, and semantic
@@ -93,7 +108,11 @@ same-scale control reached 0.0793 mIoU, and component removal caused only a
 negative/limited method result, not as a validated reliability method.
 
 ### Q: Why only nuScenes? What about SemanticKITTI / Waymo?
-A: filled at Stage 5.
+A: The project was stopped after the Stage 4 control experiment because the
+core reliability formulation was not validated. Extending to SemanticKITTI or
+Waymo would only make sense after replacing the weak teacher or developing a
+stronger control-beating reliability signal. Scaling datasets before that would
+increase cost without fixing the core failure mode.
 
 ## Honest Limitations
 
@@ -109,4 +128,10 @@ A: filled at Stage 5.
 
 ## What I Would Do With 3 More Months
 
-Filled at Stage 5.
+1. Replace the teacher first, not the student: evaluate SAM3, CAT-Seg, or
+   Grounded-SAM-style teachers on the same 128-sample projected mIoU diagnostic.
+2. Add strict controls before training: random same keep-ratio, confidence-only,
+   and per-class balanced filtering.
+3. Only run full distillation if the teacher/control diagnostic is positive.
+4. Keep Pointcept as the 3D backbone and spend effort on teacher quality,
+   calibration, and clean ablation design.

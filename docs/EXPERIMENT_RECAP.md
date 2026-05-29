@@ -40,4 +40,12 @@ learned in the 1-week prototype phase before the migration.
 
 ### Lessons that did NOT generalize
 
-Filled as new lessons supersede old ones.
+1. A threshold sweep alone is not enough to validate a reliability formula.
+   The 0.9 threshold looked promising, but the component/control pilot showed
+   random same-scale filtering could match or beat the proposed score.
+2. A weak teacher can make many filters look useful. Random and uniform
+   controls must be included before claiming a teacher-quality or reliability
+   contribution.
+3. Scaling to a full cache is not justified until the small-cache controls show
+   that the score itself, not just sparse supervision, is responsible for the
+   gain.

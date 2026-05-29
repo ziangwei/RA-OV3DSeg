@@ -11,9 +11,11 @@ that occur during execution go in this file.
 
 **stage-reliability**: train the OV student with the Stage 2 text-aligned
 head and the Stage 3 SAM2+SigLIP teacher, then run reliability threshold and
-component ablations. See `EXECUTION_PLAN.md` Section 7.
+component ablations. This stage is now closed for model work with a
+negative/limited method finding. See `EXECUTION_PLAN.md` Section 7 for the
+original target and the closure notes below for the actual outcome.
 
-## Next Experiment
+## Closure State
 
 Stage 4 is closed for model work. Do not expand to a full 6019-sample teacher
 cache, do not switch to another teacher family, and do not start the original
@@ -25,8 +27,8 @@ on 2026-05-29 and did **not** support the reliability formula. `full`
 reliability reached 0.0619 mIoU, while the random same-scale control reached
 0.0793 mIoU. Removing components did not produce a meaningful drop from
 `full` (`max_drop_vs_full=0.0023`, below the 0.005 gate). The remaining work is
-documentation only: frame Stage 4 as a weak-teacher distillation diagnostic,
-not a positive method claim.
+documentation and repository hygiene only: frame Stage 4 as a weak-teacher
+distillation diagnostic, not a positive method claim.
 
 Server discovery commands:
 
@@ -48,9 +50,9 @@ python scripts/preprocess_nuscenes_trainval_only.py \
 ln -sfn "$PWD/data/nuscenes" "$PWD/data/nuscenes_pointcept_processed/raw"
 ```
 
-Record the confirmed config path and processed data root here before full
-training:
-- Pointcept SpUNet config: TBD on server
+Historical server context:
+- Pointcept SpUNet config: selected from
+  `third_party/Pointcept/configs/nuscenes/*spunet*.py` on the server
 - nuScenes raw root: `$PWD/data/nuscenes` on server
 - Pointcept processed root: `$PWD/data/nuscenes_pointcept_processed` on server
 - Smoke log: `outputs/logs/train_baseline_20260513_111528.log`
