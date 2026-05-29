@@ -237,6 +237,45 @@ def _has_attr(obj, key):
     return hasattr(obj, key)
 
 
+def _dataset_type(obj):
+    return str(_get_attr(obj, "type", ""))
+
+
+def _contains_nuscenes_dataset(dataset_cfg):
+    if dataset_cfg is None:
+        return False
+    if isinstance(dataset_cfg, (list, tuple)):
+        return any(_contains_nuscenes_dataset(child) for child in dataset_cfg)
+    if _dataset_type(dataset_cfg) == "NuScenesDataset":
+        return True
+    for child_key in ("datasets", "dataset"):
+        child = _get_attr(dataset_cfg, child_key, None)
+        if _contains_nuscenes_dataset(child):
+            return True
+    return False
+
+
+def _nuscenes_children(dataset_cfg):
+    children = []
+    for child_key in ("datasets", "dataset"):
+        child = _get_attr(dataset_cfg, child_key, None)
+        if child is None:
+            continue
+        if isinstance(child, list):
+            kept = [item for item in child if _contains_nuscenes_dataset(item)]
+            _set_attr(dataset_cfg, child_key, kept)
+            children.extend(kept)
+        elif isinstance(child, tuple):
+            kept = tuple(item for item in child if _contains_nuscenes_dataset(item))
+            _set_attr(dataset_cfg, child_key, kept)
+            children.extend(kept)
+        elif _contains_nuscenes_dataset(child):
+            children.append(child)
+        else:
+            _del_attr(dataset_cfg, child_key)
+    return children
+
+
 def _merge_sequence(existing, extra):
     if existing is None:
         values = []
@@ -266,12 +305,8 @@ def _patch_dataset_cfg(dataset_cfg, data_root, sweeps):
             _patch_dataset_cfg(child, data_root, sweeps)
         return
 
-    dataset_type = str(_get_attr(dataset_cfg, "type", ""))
-    children = []
-    for child_key in ("datasets", "dataset"):
-        child = _get_attr(dataset_cfg, child_key, None)
-        if child is not None:
-            children.append(child)
+    dataset_type = _dataset_type(dataset_cfg)
+    children = _nuscenes_children(dataset_cfg)
 
     if children:
         # Wrapper datasets such as ConcatDataset should not receive leaf-only
@@ -283,10 +318,10 @@ def _patch_dataset_cfg(dataset_cfg, data_root, sweeps):
             _patch_dataset_cfg(child, data_root, sweeps)
         return
 
-    if dataset_type.endswith("Dataset") or _has_attr(dataset_cfg, "data_root"):
-        _set_attr(dataset_cfg, "data_root", data_root)
-    if dataset_type == "NuScenesDataset" or _has_attr(dataset_cfg, "sweeps"):
-        _set_attr(dataset_cfg, "sweeps", int(sweeps))
+    if dataset_type != "NuScenesDataset":
+        return
+    _set_attr(dataset_cfg, "data_root", data_root)
+    _set_attr(dataset_cfg, "sweeps", int(sweeps))
 
 
 def _prepend_reliability_transform(train_cfg):
@@ -297,15 +332,14 @@ def _prepend_reliability_transform(train_cfg):
             _prepend_reliability_transform(child)
         return
 
-    children = []
-    for child_key in ("datasets", "dataset"):
-        child = _get_attr(train_cfg, child_key, None)
-        if child is not None:
-            children.append(child)
+    children = _nuscenes_children(train_cfg)
     if children:
         _del_attr(train_cfg, "transform")
         for child in children:
             _prepend_reliability_transform(child)
+        return
+
+    if _dataset_type(train_cfg) != "NuScenesDataset":
         return
 
     transforms = list(_get_attr(train_cfg, "transform", []))
