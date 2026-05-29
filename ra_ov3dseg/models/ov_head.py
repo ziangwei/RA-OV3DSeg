@@ -80,12 +80,21 @@ def _strip_prefix(key: str, prefix: str) -> str:
     return key[len(prefix) :] if key.startswith(prefix) else key
 
 
+def _extract_state_dict(checkpoint: Any) -> dict[str, Any]:
+    if isinstance(checkpoint, dict):
+        for key in ("state_dict", "model_state_dict", "model"):
+            value = checkpoint.get(key)
+            if isinstance(value, dict):
+                return value
+    return checkpoint
+
+
 def load_pointcept_backbone_weights(backbone: nn.Module, checkpoint_path: str | Path) -> tuple[list[str], list[str]]:
     """Load Stage 1 Pointcept DefaultSegmentor backbone weights, excluding the closed-set head."""
 
     checkpoint_path = Path(checkpoint_path).expanduser().resolve()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    state_dict = checkpoint.get("state_dict", checkpoint)
+    state_dict = _extract_state_dict(checkpoint)
     normalized_keys = [_strip_prefix(key, "module.") for key in state_dict]
     has_backbone_prefix = any(key.startswith("backbone.") for key in normalized_keys)
     backbone_state: OrderedDict[str, torch.Tensor] = OrderedDict()
@@ -107,7 +116,7 @@ def load_segmentor_weights(model: nn.Module, checkpoint_path: str | Path) -> tup
 
     checkpoint_path = Path(checkpoint_path).expanduser().resolve()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    state_dict = checkpoint.get("state_dict", checkpoint)
+    state_dict = _extract_state_dict(checkpoint)
     normalized_state: OrderedDict[str, torch.Tensor] = OrderedDict()
     for key, value in state_dict.items():
         normalized_state[_strip_prefix(key, "module.")] = value
@@ -177,10 +186,15 @@ class PointceptOVHeadSegmentor(nn.Module):
 
         if model_weight_path:
             missing, unexpected = load_segmentor_weights(self, model_weight_path)
-            if missing or unexpected:
+            allowed_missing_prefixes = ("backbone.",) if backbone_weight_path else ()
+            allowed_missing = [
+                key for key in missing if any(key.startswith(prefix) for prefix in allowed_missing_prefixes)
+            ]
+            disallowed_missing = sorted(set(missing) - set(allowed_missing))
+            if disallowed_missing or unexpected:
                 raise RuntimeError(
                     "Stage 2 OV head checkpoint load mismatch: "
-                    f"missing={missing}, unexpected={unexpected}"
+                    f"missing={disallowed_missing}, unexpected={unexpected}"
                 )
 
         if self.freeze_backbone:

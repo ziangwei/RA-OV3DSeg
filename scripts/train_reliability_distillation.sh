@@ -69,6 +69,11 @@ if [ ! -f "${OV_HEAD_CHECKPOINT}" ]; then
   echo "[ERROR] Stage 2 OV head checkpoint not found at ${OV_HEAD_CHECKPOINT}" | tee "${LOG_FILE}"
   exit 1
 fi
+BASELINE_CHECKPOINT="${BASELINE_CHECKPOINT:-${CHECKPOINT_DIR}/closed_set_baseline.pt}"
+if [ ! -f "${BASELINE_CHECKPOINT}" ]; then
+  echo "[ERROR] Stage 1 baseline checkpoint not found at ${BASELINE_CHECKPOINT}" | tee "${LOG_FILE}"
+  exit 1
+fi
 
 RELIABILITY_DIR="${RELIABILITY_DIR:-${PROJECT_ROOT}/outputs/reliability/sam2_siglip_stage4_128_rank}"
 DENSE_POINT_DIR="${DENSE_POINT_DIR:-${PROJECT_ROOT}/outputs/dense_point_logits/sam2_siglip_stage3_128}"
@@ -147,6 +152,7 @@ train_args=(
   echo "[INFO] data_root=${DATA_ROOT}"
   echo "[INFO] text_prototypes=${TEXT_PROTOTYPES}"
   echo "[INFO] ov_head_checkpoint=${OV_HEAD_CHECKPOINT}"
+  echo "[INFO] baseline_checkpoint=${BASELINE_CHECKPOINT}"
   echo "[INFO] reliability_dir=${RELIABILITY_DIR}"
   echo "[INFO] dense_point_dir=${DENSE_POINT_DIR}"
   echo "[INFO] reliability_threshold=${RELIABILITY_THRESHOLD}"
@@ -170,6 +176,7 @@ OV_HEAD_BACKBONE_OUT_CHANNELS="${OV_HEAD_BACKBONE_OUT_CHANNELS}" \
 OV_HEAD_TEMPERATURE="${OV_HEAD_TEMPERATURE}" \
 OV_HEAD_TRAINABLE_TEMPERATURE="${OV_HEAD_TRAINABLE_TEMPERATURE}" \
 FORCE_FP32_BACKBONE="${FORCE_FP32_BACKBONE}" \
+BASELINE_CHECKPOINT="${BASELINE_CHECKPOINT}" \
 RELIABILITY_DIR="${RELIABILITY_DIR}" \
 DENSE_POINT_DIR="${DENSE_POINT_DIR}" \
 RELIABILITY_SAMPLE_INDEX_MANIFEST="${RELIABILITY_SAMPLE_INDEX_MANIFEST:-}" \
@@ -280,6 +287,7 @@ def default_config_parser_with_reliability(file_path, options):
         backbone=backbone,
         criteria=criteria,
         text_prototypes_path=text_prototypes,
+        backbone_weight_path=os.environ.get("BASELINE_CHECKPOINT") or None,
         model_weight_path=ov_head_checkpoint,
         backbone_out_channels=int(os.environ.get("OV_HEAD_BACKBONE_OUT_CHANNELS", "96")),
         temperature=float(os.environ.get("OV_HEAD_TEMPERATURE", "0.07")),
